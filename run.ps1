@@ -348,20 +348,6 @@ $BtnInit.Add_Click({
         return
     }
 
-    # 安装 pytorch
-    try {
-        $proc = Start-Process -FilePath $PythonExe `
-            -ArgumentList "-m pip install torch==2.8.0 torchaudio==2.8.0 torchvision==0.23.0 --cache-dir `"$PipCacheDir`" " `
-            -WorkingDirectory $ScriptDir -Wait -PassThru -NoNewWindow
-        if ($proc.ExitCode -ne 0) {
-            Write-Log $LogBox "[警告] Pytorch 安装退出码：$($proc.ExitCode)，请检查输出。" "#ffaa00"
-        } else {
-            Write-Log $LogBox "[成功] Pytorch 安装完成。" "#00d4ff"
-        }
-    } catch {
-        Write-Log $LogBox "[错误] $($_.Exception.Message)" "#ff4466"
-    }
-
     # 安装第三方依赖
     if (Test-Path $RequirementsFile) {
         Write-Log $LogBox "[安装] 正在安装 requirements.txt 依赖..." "#888888"
