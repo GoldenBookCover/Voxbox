@@ -1,0 +1,11 @@
+# Python environment related
+embedded_env/
+__pycache__
+
+# temp
+cache/
+output/
+share_pages/
+
+# assets
+reference_audio/
