@@ -1,6 +1,8 @@
 # Python environment related
 embedded_env/
 __pycache__
+uv.lock
+.python-version
 
 # temp
 cache/
@@ -9,3 +11,4 @@ share_pages/
 
 # assets
 reference_audio/
+.opencode/skills/
