@@ -13,11 +13,16 @@ import numpy as np
 
 os.environ['TRITON_PTXAS_PATH'] = '/usr/bin/ptxas'
 
-#  Share pages directory & static server
-SHARE_DIR = Path("share_pages")
-SHARE_DIR.mkdir(exist_ok=True)
+BASE_DIR = Path(__file__).resolve().parent.parent
 
+# Share pages directory & static server
+SHARE_DIR = BASE_DIR / "share_pages"
+SHARE_DIR.mkdir(exist_ok=True)
 SHARE_SERVER_PORT = 17866  # separate port for static share pages
+
+# Auto load reference audios
+REFERENCE_AUDIO_DIR = BASE_DIR / 'reference_audio'
+ALLOWED_AUDIO_FORMAT = ('.wav', )
 
 
 def start_share_server():
@@ -37,22 +42,49 @@ def start_share_server():
     t.start()
 
 
-#  Lazy model holder
-_model = None
+# ── Global state ──
+_model              = None       # VoxCPM instance
+_omnivoice_model    = None       # OmniVoice instance
+_current_model_type = "VoxCPM"   # 当前激活的模型类型
 
 
-def load_model(model_path: str, load_denoiser: bool, device: str) -> str:
-    global _model
+def load_model(
+    model_type: str,
+    model_path: str,
+    device: str,
+    voxcpm_load_denoiser: bool,
+    omnivoice_device_map: str,
+    omnivoice_dtype: str,
+) -> str:
+    global _model, _omnivoice_model, _current_model_type
     try:
-        from voxcpm import VoxCPM
-        _model = VoxCPM.from_pretrained(
-            model_path,
-            load_denoiser=load_denoiser,
-            device=device,
-        )
-        return f"✅ 模型加载成功：{model_path}  |  设备：{device}  |  降噪器：{'开启' if load_denoiser else '关闭'}"
+        if model_type == "OmniVoice":
+            from omnivoice import OmniVoice
+            import torch
+
+            dtype_map = {"float16": torch.float16, "float32": torch.float32}
+            dt = dtype_map.get(omnivoice_dtype, torch.float16)
+            _omnivoice_model = OmniVoice.from_pretrained(
+                model_path,
+                device_map=omnivoice_device_map,
+                dtype=dt,
+            )
+            _model = None
+            _current_model_type = "OmniVoice"
+            return f"✅ OmniVoice 加载成功：{model_path}  |  {omnivoice_device_map}  |  {omnivoice_dtype}"
+        elif model_type == 'VoxCPM' :
+            from voxcpm import VoxCPM
+            _omnivoice_model = None
+            _model = VoxCPM.from_pretrained(
+                model_path,
+                load_denoiser=voxcpm_load_denoiser,
+                device=device,
+            )
+            _current_model_type = "VoxCPM"
+            return f"✅ VoxCPM 加载成功：{model_path}  |  设备：{device}  |  降噪器：{'开启' if voxcpm_load_denoiser else '关闭'}"
     except Exception as e:
         _model = None
+        _omnivoice_model = None
         return f"❌ 模型加载失败：{e}"
 
 
@@ -70,6 +102,39 @@ def load_json_file(file_obj):
         return preview, f"✅ 已加载 {len(data)} 条文本", json.dumps(data, ensure_ascii=False)
     except Exception as e:
         return "", f"❌ 解析失败：{e}", "[]"
+
+
+def load_reference_audio() -> list[str] :
+    """从预设路径读取所有参考音频文件
+
+    Returns:
+        list[str]: 参考音频文件名
+    """
+    audio_list = []
+    for i in REFERENCE_AUDIO_DIR.iterdir() :
+        # 仅限支持的音频文件；以 - 分隔的文件命名，第一节是数字
+        if i.suffix in ALLOWED_AUDIO_FORMAT \
+            and i.stem.split('-')[0].isdigit() :
+            audio_list.append(i.name)
+    return sorted(audio_list)
+
+
+def parse_reference_info(audio_name: str) -> dict[str, str] :
+    """根据参考音频文件加载对应的文本信息
+
+    Args:
+        audio_name (str): 参考音频
+
+    Returns:
+        dict[str, str]: { desc: 感情色彩描述, text: 文本 }
+    """
+    audio_path = REFERENCE_AUDIO_DIR / audio_name
+    num, desc = audio_path.stem.split('-', 1)
+    text_path = audio_path.with_name(f"{num}.txt")
+    return {
+        'desc': desc,
+        'text': text_path.read_text().strip(),
+    }
 
 
 def parse_textarea(text: str) -> list[str]:
@@ -199,83 +264,120 @@ def create_share_page(audio_path: str, texts: list[str], server_host: str) -> tu
 #  Core generation
 # ─────────────────────────────────────────────
 def generate_audio(
+    config_switch: str,
     text_source: str,
     textarea_text: str,
     json_texts_state: str,
-    text_normalize: bool,
     ref_audio_path: str,
     cfg_value: float,
     inference_timesteps: int,
     output_dir: str,
     gap_seconds: float,
     merge_audio: bool,
+    omnivoice_ref_text: str,
+    omnivoice_num_step: int,
+    omnivoice_speed: float,
+    omnivoice_use_duration: bool,
+    omnivoice_duration: float,
     progress=gr.Progress(track_tqdm=True),
 ):
-    if _model is None:
+    if _model is None and _omnivoice_model is None:
         return None, "❌ 请先加载模型", "[]"
 
-    if text_source == "textarea":
-        texts = parse_textarea(textarea_text)
+    if config_switch == "单次生成":
+        texts = [textarea_text.strip()] if textarea_text.strip() else []
     else:
-        try:
-            texts = json.loads(json_texts_state) if json_texts_state else []
-        except Exception:
-            texts = []
+        if text_source == "textarea":
+            texts = parse_textarea(textarea_text)
+        else:
+            try:
+                texts = json.loads(json_texts_state) if json_texts_state else []
+            except Exception:
+                texts = []
 
     if not texts:
         return None, "❌ 文本列表为空，请输入或上传文本", "[]"
 
+    ref_audio_path = str(REFERENCE_AUDIO_DIR / ref_audio_path)
     if not ref_audio_path or not os.path.isfile(ref_audio_path):
         return None, f"❌ 参考音频路径无效：{ref_audio_path}", "[]"
 
-    out_path = Path(output_dir)
+    # Forbidden full path
+    out_path = BASE_DIR / output_dir.lstrip('/')
     out_path.mkdir(parents=True, exist_ok=True)
 
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-    tag = f"cfg{cfg_value}_step{inference_timesteps}_{ts}"
+    if _current_model_type == "VoxCPM" :
+        tag = f"cfg{cfg_value}_step{inference_timesteps}_{ts}" 
+    elif _current_model_type == 'OmniVoice' :
+        tag = f"numstep{omnivoice_num_step}_speed{omnivoice_speed}_{ts}"
 
-    sample_rate = _model.tts_model.sample_rate
     wav_list = []
     individual_paths = []
     log_lines = []
 
-    for i, text in enumerate(texts, start=1):
-        try:
-            wav = _model.generate(
-                text=text,
-                reference_wav_path=ref_audio_path,
-                cfg_value=cfg_value,
-                inference_timesteps=int(inference_timesteps),
-                normalize=text_normalize,
-            )
-            fname = out_path / f"{i:03d}_{tag}.wav"
-            sf.write(str(fname), wav, sample_rate)
-            wav_list.append(wav)
-            individual_paths.append(str(fname))
-            log_lines.append(f"✅ [{i}/{len(texts)}] → {fname.name}")
-        except Exception as e:
-            log_lines.append(f"❌ [{i}/{len(texts)}] 生成失败：{e}")
-            wav_list.append(np.zeros(int(sample_rate * 0.1), dtype=np.float32))
-
-    merged_path = None
-    if merge_audio and wav_list:
-        silence = np.zeros(int(sample_rate * gap_seconds), dtype=np.float32)
-        parts = []
-        for idx, w in enumerate(wav_list):
-            parts.append(w)
-            if idx < len(wav_list) - 1:
-                parts.append(silence)
-        merged = np.concatenate(parts)
-        merged_fname = out_path / f"merged_{tag}.wav"
-        sf.write(str(merged_fname), merged, sample_rate)
-        merged_path = str(merged_fname)
-        log_lines.append(f"\n🎵 合并音频已保存：{merged_fname.name}  (间隔 {gap_seconds}s)")
+    if _current_model_type == "VoxCPM":
+        sample_rate = _model.tts_model.sample_rate
+        for i, text in enumerate(texts, start=1):
+            try:
+                wav = _model.generate(
+                    text=text,
+                    reference_wav_path=ref_audio_path,
+                    cfg_value=cfg_value,
+                    inference_timesteps=int(inference_timesteps),
+                )
+                fname = out_path / f"{i:03d}_{tag}.wav"
+                sf.write(str(fname), wav, sample_rate)
+                wav_list.append(wav)
+                individual_paths.append(str(fname))
+                log_lines.append(f"✅ [{i}/{len(texts)}] → {fname.name}")
+            except Exception as e:
+                log_lines.append(f"❌ [{i}/{len(texts)}] 生成失败：{e}")
+                wav_list.append(np.zeros(int(sample_rate * 0.1), dtype=np.float32))
+        merged_path = _merge_wavs(wav_list, sample_rate, out_path, tag, gap_seconds, merge_audio)
+    elif _current_model_type == 'OmniVoice' :
+        sample_rate = 24000
+        for i, text in enumerate(texts, start=1):
+            try:
+                kwargs = {"text": text, "ref_audio": ref_audio_path}
+                if omnivoice_ref_text and omnivoice_ref_text.strip():
+                    kwargs["ref_text"] = omnivoice_ref_text.strip()
+                kwargs["num_step"]  = omnivoice_num_step
+                kwargs["speed"]     = omnivoice_speed
+                if omnivoice_use_duration :
+                    kwargs["duration"]  = omnivoice_duration
+                result = _omnivoice_model.generate(**kwargs)
+                wav = result[0] if isinstance(result, (list, tuple)) else result
+                fname = out_path / f"{i:03d}_{tag}.wav"
+                sf.write(str(fname), wav, sample_rate)
+                wav_list.append(wav)
+                individual_paths.append(str(fname))
+                log_lines.append(f"✅ [{i}/{len(texts)}] → {fname.name}")
+            except Exception as e:
+                log_lines.append(f"❌ [{i}/{len(texts)}] 生成失败：{e}")
+                wav_list.append(np.zeros(int(sample_rate * 0.1), dtype=np.float32))
+        merged_path = _merge_wavs(wav_list, sample_rate, out_path, tag, gap_seconds, merge_audio)
 
     log = "\n".join(log_lines)
     preview = merged_path if merged_path else (individual_paths[-1] if individual_paths else None)
     texts_json = json.dumps(texts, ensure_ascii=False)
 
     return preview, log, texts_json
+
+
+def _merge_wavs(wav_list, sample_rate, out_path, tag, gap_seconds, merge_audio):
+    if not merge_audio or not wav_list:
+        return None
+    silence = np.zeros(int(sample_rate * gap_seconds), dtype=np.float32)
+    parts = []
+    for idx, w in enumerate(wav_list):
+        parts.append(w)
+        if idx < len(wav_list) - 1:
+            parts.append(silence)
+    merged = np.concatenate(parts)
+    merged_fname = out_path / f"merged_{tag}.wav"
+    sf.write(str(merged_fname), merged, sample_rate)
+    return str(merged_fname)
 
 
 # ─────────────────────────────────────────────
@@ -392,7 +494,7 @@ audio { filter: invert(1) hue-rotate(180deg); width: 100% !important; }
 
 
 def build_ui():
-    with gr.Blocks(css=DARK_CSS, title="Voxbox") as demo:
+    with gr.Blocks(title="Voxbox") as demo:
 
         json_texts_state = gr.State("[]")
         generated_texts_state = gr.State("[]")   # ← texts from last generation
@@ -412,17 +514,54 @@ def build_ui():
             with gr.Tab("🔧 模型加载"):
                 gr.HTML('<div class="section-title">模型配置</div>')
                 with gr.Row():
+                    model_type = gr.Dropdown(
+                        label="模型类型",
+                        choices=["VoxCPM", "OmniVoice"],
+                        value="VoxCPM",
+                    )
+                with gr.Row():
                     model_path = gr.Textbox(label="模型路径", value="openbmb/VoxCPM2",
                                             placeholder="本地目录或 HF repo")
                     device = gr.Dropdown(label="推理设备",
                                          choices=["cuda", "cpu", "mps", "auto"], value="cuda")
-                load_denoiser = gr.Checkbox(label="启用降噪器 (load_denoiser)", value=False)
+
+                gr.HTML('<div class="section-title" style="margin-top:16px;">高级选项</div>')
+                with gr.Column(visible=True) as voxcpm_advanced:
+                    voxcpm_load_denoiser = gr.Checkbox(label="启用降噪器 (load_denoiser)", value=False)
+                with gr.Column(visible=False) as omnivoice_advanced:
+                    omnivoice_device_map = gr.Dropdown(
+                        label="设备映射 (device_map)",
+                        choices=["cuda", "cpu", "mps", "xpu"],
+                        value="cuda",
+                    )
+                    omnivoice_dtype = gr.Dropdown(
+                        label="精度 (dtype)",
+                        choices=["float16", "float32"],
+                        value="float16",
+                    )
+
+                def update_model_fields(model_type):
+                    # outputs=[model_path, device, 
+                             # omnivoice_advanced, voxcpm_advanced,
+                             # voxcpm_params_row, omnivoice_params_row,
+                             # omnivoice_ref_advanced],
+                    if model_type == "OmniVoice":
+                        return (gr.update(value="k2-fsa/OmniVoice"), gr.update(visible=False),
+                                gr.update(visible=True), gr.update(visible=False),
+                                gr.update(visible=False), gr.update(visible=True),
+                                gr.update(visible=True))
+                    elif model_type == 'VoxCPM' :
+                        return (gr.update(value="openbmb/VoxCPM2"), gr.update(visible=True),
+                                gr.update(visible=False), gr.update(visible=True),
+                                gr.update(visible=True), gr.update(visible=False),
+                                gr.update(visible=False))
+
                 load_btn = gr.Button("⚡ 加载模型", variant="primary")
                 model_status = gr.Textbox(label="状态", interactive=False)
 
                 load_btn.click(
                     load_model,
-                    inputs=[model_path, load_denoiser, device],
+                    inputs=[model_type, model_path, device, voxcpm_load_denoiser, omnivoice_device_map, omnivoice_dtype],
                     outputs=[model_status],
                 )
 
@@ -434,6 +573,12 @@ def build_ui():
                 with gr.Row(equal_height=False):
 
                     with gr.Column(scale=1):
+                        gr.HTML('<div class="section-title">生成模式</div>')
+                        config_switch = gr.Radio(
+                            label="生成模式",
+                            choices=["批量生成", "单次生成"],
+                            value="批量生成",
+                        )
                         gr.HTML('<div class="section-title">文本输入</div>')
                         text_source = gr.Radio(
                             label="文本来源",
@@ -458,28 +603,78 @@ def build_ui():
                             inputs=[text_source],
                             outputs=[json_group],
                         )
+
                         json_file.change(
                             load_json_file,
                             inputs=[json_file],
                             outputs=[json_preview, json_status, json_texts_state],
                         )
 
-                        text_normalize = gr.Checkbox(label="文本标准化（自动转换数字等）",
-                                                  value=False)
                         gr.HTML('<div class="section-title">参考音频</div>')
-                        ref_audio_path = gr.Textbox(
-                            label="参考音频路径", value="reference_audio/ref-2.wav",
-                            placeholder="/path/to/reference.wav",
+                        ref_audio_list = load_reference_audio()
+                        ref_audio_path = gr.Dropdown(
+                            label="参考音频路径",
+                            choices=ref_audio_list,
+                            value=ref_audio_list[0],
                         )
 
                     with gr.Column(scale=1):
-                        gr.HTML('<div class="section-title">生成参数</div>')
-                        cfg_value = gr.Slider(label="CFG Value",
-                                              minimum=1.0, maximum=10.0,
-                                              step=0.5, value=3.0)
-                        inference_timesteps = gr.Slider(label="Inference Timesteps",
-                                                        minimum=1, maximum=50,
-                                                        step=1, value=10)
+                        gr.HTML('<div class="section-title">模型配置</div>')
+                        with gr.Column(visible=True) as voxcpm_params_row :
+                            cfg_value = gr.Slider(label="CFG Value",
+                                                minimum=1.0, maximum=10.0,
+                                                step=0.1, value=3.0)
+                            inference_timesteps = gr.Slider(label="Inference Timesteps",
+                                                            minimum=1, maximum=50,
+                                                            step=1, value=10)
+
+                        with gr.Column(visible=False) as omnivoice_params_row:
+                            num_step_slider = gr.Slider(label="Num Step",
+                                                        minimum=1, maximum=64, step=1, value=32)
+                            speed_slider    = gr.Slider(label="Speed",
+                                                        minimum=0.5, maximum=2.0, step=0.05, value=0.9)
+
+                        with gr.Accordion("⚙️ OmniVoice 高级选项", open=False, visible=False) as omnivoice_ref_advanced :
+                            omnivoice_use_duration = gr.Checkbox(
+                                label="使用时长控制语速（会覆盖 Speed 参数）",
+                            )
+                            duration_slider = gr.Slider(label="Duration (s)",
+                                                        minimum=1.0, maximum=60.0, step=0.5, value=10.0, visible=False)
+                            omnivoice_use_whisper = gr.Checkbox(
+                                label="使用 Whisper 自动转录参考文本 (ref_text)",
+                            )
+                            omnivoice_ref_text_field = gr.Textbox(
+                                label="参考文本 (ref_text，不使用 Whisper 时输入)",
+                                placeholder="Reference transcription for voice cloning...",
+                                value=parse_reference_info(ref_audio_path.value)['text'],
+                            )
+
+                        ref_audio_path.change(
+                            lambda src: gr.update(value=parse_reference_info(src)['text']),
+                            inputs=[ref_audio_path],
+                            outputs=[omnivoice_ref_text_field],
+                        )
+
+                        model_type.change(
+                            update_model_fields,
+                            inputs=[model_type],
+                            outputs=[model_path, device, 
+                                     omnivoice_advanced, voxcpm_advanced,
+                                     voxcpm_params_row, omnivoice_params_row,
+                                     omnivoice_ref_advanced],
+                        )
+
+                        omnivoice_use_duration.change(
+                            lambda src: gr.update(visible=src),
+                            inputs=[omnivoice_use_duration],
+                            outputs=[duration_slider],
+                        )
+
+                        omnivoice_use_whisper.change(
+                            lambda src: gr.update(visible=not src),
+                            inputs=[omnivoice_use_whisper],
+                            outputs=[omnivoice_ref_text_field],
+                        )
 
                         gr.HTML('<div class="section-title">输出配置</div>')
                         output_dir = gr.Textbox(label="输出目录", value="output",
@@ -490,23 +685,14 @@ def build_ui():
                                                 minimum=0.0, maximum=5.0,
                                                 step=0.1, value=0.5)
 
-                        gr.HTML('<div class="section-title">文件命名示例</div>')
-                        gr.HTML("""
-                        <div style="font-size:.75rem;color:#697089;line-height:1.8;
-                                    font-family:'IBM Plex Mono',monospace;">
-                            单条：<code style="color:#5d8aff">001_cfg3.0_step10_20250101_120000.wav</code><br>
-                            合并：<code style="color:#b66dff">merged_cfg3.0_step10_20250101_120000.wav</code>
-                        </div>
-                        """)
-
-                gen_btn = gr.Button("🚀 开始批量生成", variant="primary")
-
-                with gr.Row(equal_height=False):
                     with gr.Column(scale=1):
                         gr.HTML('<div class="section-title">预览音频</div>')
                         preview_audio = gr.Audio(label="最终音频预览", type="filepath")
 
-                    with gr.Column(scale=1):
+                gen_btn = gr.Button("🚀 开始生成", variant="primary")
+
+                with gr.Row(equal_height=False):
+                    with gr.Column(scale=2):
                         gr.HTML('<div class="section-title">生成日志</div>')
                         gen_log = gr.Textbox(label="", lines=8, interactive=False,
                                              elem_id="gen-log")
@@ -532,10 +718,10 @@ def build_ui():
                 gen_btn.click(
                     generate_audio,
                     inputs=[
-                        text_source, textarea_input, json_texts_state,
-                        text_normalize, ref_audio_path,
-                        cfg_value, inference_timesteps,
-                        output_dir, gap_seconds, merge_audio,
+                        config_switch, text_source, textarea_input, json_texts_state,
+                        ref_audio_path,
+                        cfg_value, inference_timesteps, output_dir, gap_seconds, merge_audio,
+                        omnivoice_ref_text_field, num_step_slider, speed_slider, omnivoice_use_duration, duration_slider,
                     ],
                     outputs=[preview_audio, gen_log, generated_texts_state],
                 )
@@ -631,4 +817,4 @@ def build_ui():
 if __name__ == "__main__":
     # start_share_server()
     demo = build_ui()
-    demo.launch(share=False, server_name="0.0.0.0", server_port=17865, inbrowser=True)
+    demo.launch(css=DARK_CSS, share=False, server_name="0.0.0.0", server_port=17865, inbrowser=True)
