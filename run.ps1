@@ -512,6 +512,25 @@ $BtnUpdate.Add_Click({
             [System.Windows.Forms.MessageBoxIcon]::Warning
         ) | Out-Null
     } else {
+        # 重新安装第三方依赖
+        if (Test-Path $RequirementsFile) {
+            Write-Log $LogBox "[安装] 正在安装 requirements.txt 依赖..." "#888888"
+            $PipArgs = "-m pip install -r `"$RequirementsFile`" --cache-dir `"$PipCacheDir`""
+            try {
+                $proc = Start-Process -FilePath $PythonExe -ArgumentList $PipArgs `
+                    -WorkingDirectory $ScriptDir -Wait -PassThru -NoNewWindow
+                if ($proc.ExitCode -ne 0) {
+                    Write-Log $LogBox "[警告] 依赖安装退出码：$($proc.ExitCode)，请检查输出。" "#ffaa00"
+                } else {
+                    Write-Log $LogBox "[成功] 所有依赖安装完成。" "#00d4ff"
+                }
+            } catch {
+                Write-Log $LogBox "[错误] $($_.Exception.Message)" "#ff4466"
+            }
+        } else {
+            Write-Log $LogBox "[跳过] 未找到 requirements.txt，跳过依赖安装。" "#888888"
+        }
+        
         Write-Log $LogBox "[完成] 更新完成！✓" "#00ff88"
         [System.Windows.Forms.MessageBox]::Show(
             "更新完成！当前版本：$LatestTag",
