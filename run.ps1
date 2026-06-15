@@ -24,8 +24,8 @@ $RequirementsFile = Join-Path $ScriptDir "requirements.txt"
 # ------------------------------------------------------------------------------
 # GitHub 更新配置（请替换为实际仓库信息）
 # ------------------------------------------------------------------------------
-$GitHubOwner    = "YOUR_GITHUB_USERNAME"
-$GitHubRepo     = "YOUR_REPO_NAME"
+$GitHubOwner    = "GoldenBookCover"
+$GitHubRepo     = "Voxbox"
 $GitHubApiUrl   = "https://api.github.com/repos/$GitHubOwner/$GitHubRepo/releases/latest"
 # 版本文件：本地存储当前版本号，例如内容为 "v1.0.0"
 $LocalVersionFile = Join-Path $ScriptDir "version.txt"
@@ -440,18 +440,20 @@ $BtnUpdate.Add_Click({
     # 下载 Release 资产（假设主资产为 app.zip，可根据实际修改）
     $Asset = $Response.assets | Where-Object { $_.name -like "*.zip" } | Select-Object -First 1
     if (-not $Asset) {
-        Write-Log $LogBox "[错误] Release 中未找到可下载的 .zip 资产。" "#ff4466"
-        $StatusLabel.Text = "未找到更新包"
-        return
+        Write-Log $LogBox "Release 中未找到可下载的 .zip 资产，使用默认资产。" "#ff4466"
+        $Asset = @{  
+            "browser_download_url" = $Response.zipball_url
+        }
     }
 
     $DownloadUrl  = $Asset.browser_download_url
-    $DownloadPath = Join-Path $env:TEMP $Asset.name
+    $DownloadPath = Join-Path $env:TEMP "voxbox-update.zip"
     Write-Log $LogBox "[下载] $DownloadUrl" "#888888"
     try {
-        $wc = New-Object System.Net.WebClient
-        $wc.DownloadFile($DownloadUrl, $DownloadPath)
-        Write-Log $LogBox "[成功] 下载完成：$($Asset.name)" "#ffaa00"
+        # $wc = New-Object System.Net.WebClient
+        # $wc.DownloadFile($DownloadUrl, $DownloadPath)
+        Invoke-WebRequest -Uri $DownloadUrl -OutFile $DownloadPath
+        Write-Log $LogBox "[成功] 下载完成：$($DownloadPath.name)" "#ffaa00"
     } catch {
         Write-Log $LogBox "[错误] 下载失败：$($_.Exception.Message)" "#ff4466"
         $StatusLabel.Text = "下载更新失败"
@@ -465,7 +467,10 @@ $BtnUpdate.Add_Click({
     Add-Type -AssemblyName System.IO.Compression.FileSystem
     [System.IO.Compression.ZipFile]::ExtractToDirectory($DownloadPath, $TempExtract)
 
-    $NewPyVerFile = Join-Path $TempExtract "python_version.txt"
+    $top       = Get-ChildItem $TempExtract
+    $sourceDir = if ($top.Count -eq 1 -and $top[0].PSIsContainer) { $top[0].FullName } else { $TempExtract }
+
+    $NewPyVerFile = Join-Path $sourceDir "python_version.txt"
     if (Test-Path $NewPyVerFile) {
         $NewPythonVersion = (Get-Content $NewPyVerFile -Raw).Trim()
     }
@@ -485,10 +490,9 @@ $BtnUpdate.Add_Click({
 
     # 覆盖安装到项目根目录（保留 embedded_env 和 cache）
     Write-Log $LogBox "[解压] 正在将更新覆盖到项目目录..." "#888888"
-    Get-ChildItem -Path $TempExtract | ForEach-Object {
-        $Dest = Join-Path $ScriptDir $_.Name
+    Get-ChildItem -Path $sourceDir | ForEach-Object {
         if ($_.Name -notin @("embedded_env", "cache")) {
-            Copy-Item -Path $_.FullName -Destination $Dest -Recurse -Force
+            Copy-Item -Path $_.FullName -Destination $ScriptDir -Recurse -Force
         }
     }
 
