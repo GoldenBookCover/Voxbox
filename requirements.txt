@@ -1,5 +1,5 @@
 # Pytorch with cuda support
-# --extra-index-url https://download.pytorch.org/whl/cu129
+--extra-index-url https://download.pytorch.org/whl/cu129
 
 requests
 soundfile
@@ -11,4 +11,3 @@ torchvision==0.23.0
 tqdm
 voxcpm>=2.0.3
 omnivoice>=0.1.5
-
