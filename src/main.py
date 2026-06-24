@@ -6,12 +6,16 @@ import secrets
 import threading
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
+from pprint import pp
 
 import gradio as gr
 import soundfile as sf
 import numpy as np
 
 os.environ['TRITON_PTXAS_PATH'] = '/usr/bin/ptxas'
+#os.environ['MODELSCOPE_CACHE'] = ''
+#os.environ["FUNASR_USE_HF"] = "1"
+#os.environ["HF_ENDPOINT"] = "https://huggingface.co"
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -279,7 +283,9 @@ def generate_audio(
     omnivoice_speed: float,
     omnivoice_use_duration: bool,
     omnivoice_duration: float,
-    progress=gr.Progress(track_tqdm=True),
+    use_seed: bool=False,
+    seed: int=None,
+    progress=gr.Progress(),
 ):
     if _model is None and _omnivoice_model is None:
         return None, "❌ 请先加载模型", "[]"
@@ -315,18 +321,23 @@ def generate_audio(
     wav_list = []
     individual_paths = []
     log_lines = []
+    total_steps = len(texts)
 
     if _current_model_type == "VoxCPM":
         sample_rate = _model.tts_model.sample_rate
         for i, text in enumerate(texts, start=1):
             try:
-                wav = _model.generate(
-                    text=text,
-                    reference_wav_path=ref_audio_path,
-                    cfg_value=cfg_value,
-                    inference_timesteps=int(inference_timesteps),
-                )
-                fname = out_path / f"{i:03d}_{tag}.wav"
+                kwargs = {
+                    "text": text,
+                    "reference_wav_path": ref_audio_path,
+                    "cfg_value": cfg_value,
+                    "inference_timesteps": int(inference_timesteps),
+                }
+                if use_seed :
+                    print(f"Enabling seed: {seed}")
+                    kwargs["seed"] = seed
+                wav = _model.generate(**kwargs)
+                fname = out_path / f"{i:05d}_{tag}.wav"
                 sf.write(str(fname), wav, sample_rate)
                 wav_list.append(wav)
                 individual_paths.append(str(fname))
@@ -334,6 +345,7 @@ def generate_audio(
             except Exception as e:
                 log_lines.append(f"❌ [{i}/{len(texts)}] 生成失败：{e}")
                 wav_list.append(np.zeros(int(sample_rate * 0.1), dtype=np.float32))
+            progress(i / total_steps, desc=f"Processing: {i}/{total_steps}")
         merged_path = _merge_wavs(wav_list, sample_rate, out_path, tag, gap_seconds, merge_audio)
     elif _current_model_type == 'OmniVoice' :
         sample_rate = 24000
@@ -342,13 +354,13 @@ def generate_audio(
                 kwargs = {"text": text, "ref_audio": ref_audio_path}
                 if omnivoice_ref_text and omnivoice_ref_text.strip():
                     kwargs["ref_text"] = omnivoice_ref_text.strip()
-                kwargs["num_step"]  = omnivoice_num_step
-                kwargs["speed"]     = omnivoice_speed
+                kwargs["num_step"] = omnivoice_num_step
+                kwargs["speed"] = omnivoice_speed
                 if omnivoice_use_duration :
                     kwargs["duration"]  = omnivoice_duration
                 result = _omnivoice_model.generate(**kwargs)
                 wav = result[0] if isinstance(result, (list, tuple)) else result
-                fname = out_path / f"{i:03d}_{tag}.wav"
+                fname = out_path / f"{i:05d}_{tag}.wav"
                 sf.write(str(fname), wav, sample_rate)
                 wav_list.append(wav)
                 individual_paths.append(str(fname))
@@ -356,6 +368,7 @@ def generate_audio(
             except Exception as e:
                 log_lines.append(f"❌ [{i}/{len(texts)}] 生成失败：{e}")
                 wav_list.append(np.zeros(int(sample_rate * 0.1), dtype=np.float32))
+            progress(i / total_steps, desc=f"Processing: {i}/{total_steps}")
         merged_path = _merge_wavs(wav_list, sample_rate, out_path, tag, gap_seconds, merge_audio)
 
     log = "\n".join(log_lines)
@@ -587,7 +600,7 @@ def build_ui():
                         )
                         textarea_input = gr.Textbox(
                             label="手动输入（每行一条）",
-                            lines=8,
+                            lines=12,
                             placeholder="第一条文本\n第二条文本\n...",
                         )
                         with gr.Group(visible=False) as json_group:
@@ -610,14 +623,6 @@ def build_ui():
                             outputs=[json_preview, json_status, json_texts_state],
                         )
 
-                        gr.HTML('<div class="section-title">参考音频</div>')
-                        ref_audio_list = load_reference_audio()
-                        ref_audio_path = gr.Dropdown(
-                            label="参考音频路径",
-                            choices=ref_audio_list,
-                            value=ref_audio_list[0],
-                        )
-
                     with gr.Column(scale=1):
                         gr.HTML('<div class="section-title">模型配置</div>')
                         with gr.Column(visible=True) as voxcpm_params_row :
@@ -627,6 +632,11 @@ def build_ui():
                             inference_timesteps = gr.Slider(label="Inference Timesteps",
                                                             minimum=1, maximum=50,
                                                             step=1, value=10)
+                            seed_enabled = gr.Checkbox(label="启用固定随机种子", value=False)
+                            seed_value = gr.Number(
+                                label="种子值", minimum=0, maximum=2147483647, step=1, value=42,
+                                visible=False
+                            )
 
                         with gr.Column(visible=False) as omnivoice_params_row:
                             num_step_slider = gr.Slider(label="Num Step",
@@ -646,13 +656,12 @@ def build_ui():
                             omnivoice_ref_text_field = gr.Textbox(
                                 label="参考文本 (ref_text，不使用 Whisper 时输入)",
                                 placeholder="Reference transcription for voice cloning...",
-                                value=parse_reference_info(ref_audio_path.value)['text'],
+                                #value=parse_reference_info(ref_audio_path.value)['text'],
                             )
 
-                        ref_audio_path.change(
-                            lambda src: gr.update(value=parse_reference_info(src)['text']),
-                            inputs=[ref_audio_path],
-                            outputs=[omnivoice_ref_text_field],
+                        seed_enabled.change(
+                            lambda on: gr.update(visible=on),
+                            inputs=[seed_enabled], outputs=[seed_value],
                         )
 
                         model_type.change(
@@ -686,8 +695,30 @@ def build_ui():
                                                 step=0.1, value=0.5)
 
                     with gr.Column(scale=1):
+                        gr.HTML('<div class="section-title">参考音频</div>')
+                        ref_audio_list = load_reference_audio()
+                        ref_audio_path = gr.Dropdown(
+                            label="参考音频路径",
+                            choices=ref_audio_list,
+                            value=ref_audio_list[0],
+                        )
+
+                        ref_audio_refresh_list = gr.Button('刷新参考音频', variant='primary')
+
                         gr.HTML('<div class="section-title">预览音频</div>')
                         preview_audio = gr.Audio(label="最终音频预览", type="filepath")
+
+                        ref_audio_path.change(
+                            lambda src: gr.update(value=parse_reference_info(src)['text']),
+                            inputs=[ref_audio_path],
+                            outputs=[omnivoice_ref_text_field],
+                        )
+
+                        ref_audio_refresh_list.click(
+                            lambda: gr.update(choices=load_reference_audio(), value=load_reference_audio()[0]),
+                            inputs=[],
+                            outputs=[ref_audio_path],
+                        )
 
                 gen_btn = gr.Button("🚀 开始生成", variant="primary")
 
@@ -698,22 +729,22 @@ def build_ui():
                                              elem_id="gen-log")
 
                 # ── After generation: quick share shortcut ──
-                # gr.HTML('<div class="section-title" style="margin-top:20px;">快速分享</div>')
-                # with gr.Row():
-                #     quick_host = gr.Textbox(
-                #         label="服务器地址（留空使用默认）",
-                #         placeholder=f"http://your-server:{SHARE_SERVER_PORT}",
-                #         scale=3,
-                #     )
-                #     # quick_share_btn = gr.Button("🔗 生成分享链接", variant="secondary", scale=1)
+                gr.HTML('<div class="section-title" style="margin-top:20px;">快速分享</div>')
+                with gr.Row():
+                    quick_host = gr.Textbox(
+                        label="服务器地址（留空使用默认）",
+                        placeholder=f"http://your-server:{SHARE_SERVER_PORT}",
+                        scale=3,
+                    )
+                    quick_share_btn = gr.Button("🔗 生成分享链接", variant="secondary", scale=1)
 
-                # quick_share_status = gr.Textbox(label="状态", interactive=False, max_lines=1)
-                # quick_share_url = gr.Textbox(
-                #     label="分享链接",
-                #     interactive=False,
-                #     placeholder="生成后链接显示在此",
-                #     elem_id="share-url",
-                # )
+                quick_share_status = gr.Textbox(label="状态", interactive=False, max_lines=1)
+                quick_share_url = gr.Textbox(
+                    label="分享链接",
+                    interactive=False,
+                    placeholder="生成后链接显示在此",
+                    elem_id="share-url",
+                )
 
                 gen_btn.click(
                     generate_audio,
@@ -721,100 +752,112 @@ def build_ui():
                         config_switch, text_source, textarea_input, json_texts_state,
                         ref_audio_path,
                         cfg_value, inference_timesteps, output_dir, gap_seconds, merge_audio,
-                        omnivoice_ref_text_field, num_step_slider, speed_slider, omnivoice_use_duration, duration_slider,
+                        omnivoice_ref_text_field, num_step_slider, speed_slider, omnivoice_use_duration, duration_slider, seed_enabled, seed_value
                     ],
                     outputs=[preview_audio, gen_log, generated_texts_state],
                 )
 
-                # quick_share_btn.click(
-                #     handle_share,
-                #     inputs=[preview_audio, generated_texts_state, quick_host],
-                #     outputs=[quick_share_status, quick_share_url],
-                # )
+                quick_share_btn.click(
+                    handle_share,
+                    inputs=[preview_audio, generated_texts_state, quick_host],
+                    outputs=[quick_share_status, quick_share_url],
+                )
 
             # ══════════════════════════════════
             #  Tab 3 – Share Manager
             # ══════════════════════════════════
-            # with gr.Tab("🔗 分享管理"):
-            #     gr.HTML('<div class="section-title">分享已生成的音频</div>')
-            #     gr.HTML(f"""
-            #     <div style="font-size:.8rem;color:#697089;line-height:1.9;margin-bottom:20px;">
-            #         在「批量生成」完成后，可以在这里指定任意音频文件路径来创建分享链接。<br>
-            #         分享服务运行于端口 <code style="color:#5d8aff">{SHARE_SERVER_PORT}</code>，
-            #         分享页面保存在 <code style="color:#5d8aff">share_pages/</code> 目录。<br>
-            #         收听者打开链接即可在浏览器中看到文本并播放音频，无需安装任何软件。
-            #     </div>
-            #     """)
+            with gr.Tab("🔗 分享管理"):
+                gr.HTML('<div class="section-title">分享已生成的音频</div>')
+                gr.HTML(f"""
+                <div style="font-size:.8rem;color:#697089;line-height:1.9;margin-bottom:20px;">
+                    在「批量生成」完成后，可以在这里指定任意音频文件路径来创建分享链接。<br>
+                    分享服务运行于端口 <code style="color:#5d8aff">{SHARE_SERVER_PORT}</code>，
+                    分享页面保存在 <code style="color:#5d8aff">share_pages/</code> 目录。<br>
+                    收听者打开链接即可在浏览器中看到文本并播放音频，无需安装任何软件。
+                </div>
+                """)
 
-            #     with gr.Row():
-            #         with gr.Column(scale=2):
-            #             gr.HTML('<div class="section-title">音频文件</div>')
-            #             share_audio_path = gr.Textbox(
-            #                 label="音频文件路径",
-            #                 placeholder="output/merged_cfg3.0_step10_20250101_120000.wav",
-            #             )
-            #             gr.HTML('<div class="section-title">文本内容</div>')
-            #             share_text_input = gr.Textbox(
-            #                 label="文本（每行一条，多条自动编号）",
-            #                 lines=5,
-            #                 placeholder="输入生成该音频时使用的文本",
-            #             )
+                with gr.Row():
+                    with gr.Column(scale=2):
+                        gr.HTML('<div class="section-title">音频文件</div>')
+                        share_audio_path = gr.Textbox(
+                            label="音频文件路径",
+                            placeholder="output/merged_cfg3.0_step10_20250101_120000.wav",
+                        )
+                        gr.HTML('<div class="section-title">文本内容</div>')
+                        share_text_input = gr.Textbox(
+                            label="文本（每行一条，多条自动编号）",
+                            lines=5,
+                            placeholder="输入生成该音频时使用的文本",
+                        )
 
-            #         with gr.Column(scale=1):
-            #             gr.HTML('<div class="section-title">服务器地址</div>')
-            #             share_host_input = gr.Textbox(
-            #                 label="Base URL",
-            #                 placeholder=f"http://your-server:{SHARE_SERVER_PORT}",
-            #                 value="",
-            #             )
-            #             gr.HTML(f"""
-            #             <div style="font-size:.72rem;color:#697089;line-height:1.7;margin-top:4px;">
-            #                 留空则使用 <code style="color:#5d8aff">localhost:{SHARE_SERVER_PORT}</code><br>
-            #                 填入公网地址即可分享给他人
-            #             </div>
-            #             """)
-            #             gr.HTML('<div class="section-title" style="margin-top:20px;">预览</div>')
-            #             share_manager_preview = gr.Audio(
-            #                 label="音频预览",
-            #                 type="filepath",
-            #                 interactive=False,
-            #             )
+                    with gr.Column(scale=1):
+                        gr.HTML('<div class="section-title">服务器地址</div>')
+                        share_host_input = gr.Textbox(
+                            label="Base URL",
+                            placeholder=f"http://your-server:{SHARE_SERVER_PORT}",
+                            value="",
+                        )
+                        gr.HTML(f"""
+                        <div style="font-size:.72rem;color:#697089;line-height:1.7;margin-top:4px;">
+                            留空则使用 <code style="color:#5d8aff">localhost:{SHARE_SERVER_PORT}</code><br>
+                            填入公网地址即可分享给他人
+                        </div>
+                        """)
+                        gr.HTML('<div class="section-title" style="margin-top:20px;">预览</div>')
+                        share_manager_preview = gr.Audio(
+                            label="音频预览",
+                            type="filepath",
+                            interactive=False,
+                        )
 
-            #     share_manager_btn = gr.Button("🔗 生成分享链接", variant="primary")
-            #     share_manager_status = gr.Textbox(label="状态", interactive=False, max_lines=1)
-            #     gr.HTML('<div class="section-title">分享链接</div>')
-            #     share_manager_url = gr.Textbox(
-            #         label="",
-            #         interactive=False,
-            #         placeholder="点击按钮后，链接显示在此处",
-            #         elem_id="share-url",
-            #         lines=2,
-            #     )
+                share_manager_btn = gr.Button("🔗 生成分享链接", variant="primary")
+                share_manager_status = gr.Textbox(label="状态", interactive=False, max_lines=1)
+                gr.HTML('<div class="section-title">分享链接</div>')
+                share_manager_url = gr.Textbox(
+                    label="",
+                    interactive=False,
+                    placeholder="点击按钮后，链接显示在此处",
+                    elem_id="share-url",
+                    lines=2,
+                )
 
-            #     # load audio preview when path changes
-            #     share_audio_path.change(
-            #         lambda p: p if p and os.path.isfile(p) else None,
-            #         inputs=[share_audio_path],
-            #         outputs=[share_manager_preview],
-            #     )
+                # load audio preview when path changes
+                share_audio_path.change(
+                    lambda p: p if p and os.path.isfile(p) else None,
+                    inputs=[share_audio_path],
+                    outputs=[share_manager_preview],
+                )
 
-            #     def handle_share_manager(audio_path, text_input, server_host):
-            #         texts = parse_textarea(text_input)
-            #         if not texts:
-            #             return "❌ 请输入文本内容", ""
-            #         share_url, status = create_share_page(audio_path, texts, server_host)
-            #         return status, share_url
+                def handle_share_manager(audio_path, text_input, server_host):
+                    texts = parse_textarea(text_input)
+                    if not texts:
+                        return "❌ 请输入文本内容", ""
+                    share_url, status = create_share_page(audio_path, texts, server_host)
+                    return status, share_url
 
-            #     share_manager_btn.click(
-            #         handle_share_manager,
-            #         inputs=[share_audio_path, share_text_input, share_host_input],
-            #         outputs=[share_manager_status, share_manager_url],
-            #     )
+                share_manager_btn.click(
+                    handle_share_manager,
+                    inputs=[share_audio_path, share_text_input, share_host_input],
+                    outputs=[share_manager_status, share_manager_url],
+                )
+
+        def fill_in_default_values(
+            input_ref_audio_path,
+        ) :
+            text_to_fill = parse_reference_info(input_ref_audio_path)['text']
+            return gr.update(value=text_to_fill)
+
+        demo.load(
+            fn=fill_in_default_values,
+            inputs=[ref_audio_path],
+            outputs=[omnivoice_ref_text_field],
+        )
 
     return demo
 
 
 if __name__ == "__main__":
-    # start_share_server()
+    start_share_server()
     demo = build_ui()
-    demo.launch(css=DARK_CSS, share=False, server_name="0.0.0.0", server_port=17865, inbrowser=True)
+    demo.launch(css=DARK_CSS, share=False, server_name="0.0.0.0", server_port=17865, inbrowser=False)
