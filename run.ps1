@@ -73,18 +73,18 @@ function Write-Log {
 
 $Form = New-Object System.Windows.Forms.Form
 $Form.Text            = "Application Launcher"
-$Form.Size            = New-Object System.Drawing.Size(680, 560)
+$Form.Size            = New-Object System.Drawing.Size(800, 830)
 $Form.StartPosition   = "CenterScreen"
 $Form.BackColor       = [System.Drawing.ColorTranslator]::FromHtml("#0f1117")
 $Form.ForeColor       = [System.Drawing.Color]::White
 $Form.FormBorderStyle = "FixedSingle"
 $Form.MaximizeBox     = $false
-$Form.Font            = New-Object System.Drawing.Font("Consolas", 9)
+$Form.Font            = New-Object System.Drawing.Font("Consolas", 16)
 
 # ---------- 标题标签 ----------
 $LabelTitle = New-Object System.Windows.Forms.Label
 $LabelTitle.Text      = "◆  VoxCPM Studio Launcher"
-$LabelTitle.Font      = New-Object System.Drawing.Font("Consolas", 13, [System.Drawing.FontStyle]::Bold)
+$LabelTitle.Font      = New-Object System.Drawing.Font("Consolas", 23, [System.Drawing.FontStyle]::Bold)
 $LabelTitle.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#00d4ff")
 $LabelTitle.Location  = New-Object System.Drawing.Point(20, 16)
 $LabelTitle.Size      = New-Object System.Drawing.Size(620, 28)
@@ -100,7 +100,7 @@ $Form.Controls.Add($Separator)
 # ---------- 按钮面板 ----------
 $BtnPanel = New-Object System.Windows.Forms.Panel
 $BtnPanel.Location  = New-Object System.Drawing.Point(20, 62)
-$BtnPanel.Size      = New-Object System.Drawing.Size(625, 56)
+$BtnPanel.Size      = New-Object System.Drawing.Size(730, 56)
 $BtnPanel.BackColor = [System.Drawing.ColorTranslator]::FromHtml("#0f1117")
 $Form.Controls.Add($BtnPanel)
 
