@@ -9,5 +9,6 @@ torch==2.8.0
 torchaudio==2.8.0
 torchvision==0.23.0
 tqdm
-voxcpm>=2.0.3
+# voxcpm>=2.0.3
+voxcpm@git+https://github.com/DEVAIEXP/VoxCPM.git@feat-add-seed
 omnivoice>=0.1.5
