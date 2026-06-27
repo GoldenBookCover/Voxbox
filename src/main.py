@@ -710,7 +710,7 @@ def build_ui():
                                                   value=True)
                         gap_seconds = gr.Slider(label="音频间隔 (秒)",
                                                 minimum=0.0, maximum=5.0,
-                                                step=0.1, value=0.5)
+                                                step=0.1, value=0.7)
 
                     with gr.Column(scale=1):
                         gr.HTML('<div class="section-title">参考音频</div>')
