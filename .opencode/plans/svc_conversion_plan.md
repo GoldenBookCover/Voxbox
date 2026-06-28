@@ -54,9 +54,14 @@ def generate_audio(
 
 ### 2.2 VoxCPM for 循环内修改（约第328行）
 
-在 `wav = _model.generate(**kwargs)` 之后写入 wav_list/individual_paths **前后**，加入 SVC 转换步骤：
+在循环外新增一个列表 `svc_wav_paths: list[str] = []`，用于保存转换后的音频路径。
+
+在 `wav = _model.generate(**kwargs)` 之后，原有的文件名写入逻辑保持不变；紧接着调用 `sovits_convert_audio`，生成带 `svc_` 前缀的新文件并追加到列表中：
 
 ```python
+# 在 for 循环外初始化
+svc_wav_paths: list[str] = []
+
 for i, text in enumerate(texts, start=1):
     try:
         kwargs = { ... }
@@ -64,28 +69,34 @@ for i, text in enumerate(texts, start=1):
             kwargs["seed"] = seed
         wav = _model.generate(**kwargs)
         
-        # ← SVC conversion inside the loop (方案 A)
+        fname = out_path / f"{i:05d}_{tag}.wav"
+        sf.write(str(fname), wav, sample_rate)
+        
+        # ← SVC conversion (简化版)
         if svc_convert and svc_model_name and svc_model_name != "无可用模型":
             for m in _sovits_models_available:
                 if m['model_name'] == svc_model_name:
                     try:
-                        out_pfx = out_path / f"svc_{i:05d}_{tag}.wav"
+                        svc_fname = out_path / f"svc_{i:05d}_{tag}.wav"
                         sr, converted_wav = utils.sovits_convert_audio(
-                            audio_filepath=str(out_path / f"{i:05d}_{tag}.wav"),
+                            audio_filepath=str(fname),
                             model_name=svc_model_name,
                             model_path=m['model_path'],
                             speaker_path=m['speaker_path'],
                         )
-                        sf.write(str(out_pfx), converted_wav, sr)
-                        individual_paths[i-1] = str(out_pfx)  # replace path
-                        log_lines[i-1] += " → SVC转换完成"
-                        wav = converted_wav
+                        sf.write(str(svc_fname), converted_wav, sr)
+                        svc_wav_paths.append(str(svc_fname))
                     except Exception as svc_err:
-                        log_lines[i-1] += f" [SVC失败: {svc_err}]"
+                        log_lines[i-1] = f"[{i}] SVC失败: {svc_err}"
                     break
-        
-        fname = out_path / f"{i:05d}_{tag}.wav"
-        sf.write(str(fname), wav, sample_rate)  # write base wav (may be unchanged if svc_convert=False)
+
+    except Exception as err:
+        log_lines[i-1] = f"[{i}] ERROR: {err}"
+
+# ← 合并时使用各自列表（保持原有合并逻辑不变）
+if merge_audio and svc_wav_paths:
+    svc_merged_fname = out_path / f"svc_merged_{tag}.wav"
+    utils.merge_wav_files(file_paths=svc_wav_paths, output_path=str(svc_merged_fname))
 ```
 
 **进度管理：** 
@@ -197,7 +208,7 @@ gen_btn.click(
 
 ## 5. 注意事项
 
-1. **SVC 转换输出的文件命名**：`svc_原文件名.wav`，不破坏原始音频
+1. **SVC 转换输出的文件命名**：`svc_{i:05d}_{tag}.wav`（每文件加 `svc_` 前缀）；合并后 SVC 音频为 `svc_merged_{tag}.wav`，原始合并为 `merged_{tag}.wav` 不变
 2. **进度条**：每个文本在生成 + SVC 转换后统一更新 progress（与方案 A 对齐）
 3. **无可用模型**：下拉显示 "无可用模型"，SVC不执行
 4. **SVC 转换失败**：记录日志，继续处理下一条文本（不中断批量生成）
