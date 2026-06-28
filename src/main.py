@@ -8,35 +8,28 @@ from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
 from pprint import pp
 
+import torch
 import gradio as gr
 import soundfile as sf
 import numpy as np
 
-os.environ['TRITON_PTXAS_PATH'] = '/usr/bin/ptxas'
-#os.environ['MODELSCOPE_CACHE'] = ''
-#os.environ["FUNASR_USE_HF"] = "1"
-#os.environ["HF_ENDPOINT"] = "https://huggingface.co"
-
-BASE_DIR = Path(__file__).resolve().parent.parent
-
-# Share pages directory & static server
-SHARE_DIR = BASE_DIR / "share_pages"
-SHARE_DIR.mkdir(exist_ok=True)
-SHARE_SERVER_PORT = 17866  # separate port for static share pages
-
-# Auto load reference audios
-REFERENCE_AUDIO_DIR = BASE_DIR / 'reference_audio'
-ALLOWED_AUDIO_FORMAT = ('.wav', )
+from config import (
+    BASE_DIR,
+    SHARE_DIR,
+    SHARE_SERVER_PORT,
+    REFERENCE_AUDIO_DIR,
+    ALLOWED_AUDIO_FORMAT,
+)
 
 
 def start_share_server():
-    """Serve share_pages/ directory on SHARE_SERVER_PORT in a background thread."""
+    """Serve `SHARE_DIR` directory on SHARE_SERVER_PORT in a background thread."""
     class Handler(SimpleHTTPRequestHandler):
         def __init__(self, *args, **kwargs):
             super().__init__(*args, directory=str(SHARE_DIR), **kwargs)
 
         def log_message(self, format, *args):
-            pass  # silence access logs
+            pass
 
     def run():
         server = HTTPServer(("0.0.0.0", SHARE_SERVER_PORT), Handler)
@@ -47,9 +40,18 @@ def start_share_server():
 
 
 # ── Global state ──
-_model              = None       # VoxCPM instance
-_omnivoice_model    = None       # OmniVoice instance
-_current_model_type = "VoxCPM"   # 当前激活的模型类型
+# VoxCPM instance
+_model = None
+
+# OmniVoice instance
+_omnivoice_model = None
+
+# 当前激活的模型类型
+_current_model_type = "VoxCPM"
+
+# SVC model state
+_sovits_models_available = []
+_active_svc_model = None
 
 
 def load_model(
@@ -90,6 +92,59 @@ def load_model(
         _model = None
         _omnivoice_model = None
         return f"❌ 模型加载失败：{e}"
+
+
+def unload_svc_model():
+    """卸载当前 SVC 模型"""
+    global _active_svc_model
+    if _active_svc_model is not None:
+        print(f"Unload SVC model: {_active_svc_model.model_name}")
+        del _active_svc_model
+        import gc
+        gc.collect()
+        torch.cuda.empty_cache()
+        _active_svc_model = None
+    return gr.update(value="✅ 模型已卸载")
+
+
+def load_svc_model(model_name: str):
+    """加载选中的 SVC 音色模型，并卸载之前的旧模型"""
+    global _active_svc_model
+    
+    if not model_name or model_name == "无可用模型":
+        return gr.update(value="❌ 未选择模型")
+    
+    # 找到对应的模型信息
+    chosen = None
+    for m in _sovits_models_available:
+        if m['model_name'] == model_name:
+            chosen = m
+            break
+    
+    if not chosen:
+        return gr.update(value=f"❌ 未找到模型: {model_name}")
+    
+    # 卸载旧模型
+    unload_svc_model()
+    
+    # 加载新模型
+    from utils import SovitsInferenceConfig
+    
+    config = SovitsInferenceConfig(
+        model=chosen['model_path'],
+        spk=chosen['speaker_path'],
+        config=SOVITS_DEFAULT_CONFIG,  # base.yaml
+        voice=model_name,
+    )
+    
+    _active_svc_model = config
+    
+    import types
+    utils_mod = types.ModuleType('utils_mod')
+    utils_mod = __import__('utils', fromlist=['SOVITS_DEFAULT_CONFIG'])
+    config.config = utils_mod.SOVITS_DEFAULT_CONFIG
+    
+    return gr.update(value=f"✅ 已加载音色: {model_name}（模型: {chosen['model_path'].name}）")
 
 
 #  Text-list helpers
