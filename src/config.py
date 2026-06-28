@@ -18,5 +18,5 @@ SHARE_SERVER_PORT = 17866
 REFERENCE_AUDIO_DIR = BASE_DIR / 'reference_audio'
 ALLOWED_AUDIO_FORMAT = ('.wav', )
 
-# Sovits model
+# Local models
 MODEL_PATH = BASE_DIR / 'models'

@@ -22,6 +22,12 @@ from config import (
 )
 
 
+from utils import (
+    get_sovits_model_list,
+    sovits_convert_audio,
+)
+
+
 def start_share_server():
     """Serve `SHARE_DIR` directory on SHARE_SERVER_PORT in a background thread."""
     class Handler(SimpleHTTPRequestHandler):
@@ -51,7 +57,6 @@ _current_model_type = "VoxCPM"
 
 # SVC model state
 _sovits_models_available = []
-_active_svc_model = None
 
 
 def load_model(
@@ -94,60 +99,16 @@ def load_model(
         return f"❌ 模型加载失败：{e}"
 
 
-def unload_svc_model():
-    """卸载当前 SVC 模型"""
-    global _active_svc_model
-    if _active_svc_model is not None:
-        print(f"Unload SVC model: {_active_svc_model.model_name}")
-        del _active_svc_model
-        import gc
-        gc.collect()
-        torch.cuda.empty_cache()
-        _active_svc_model = None
-    return gr.update(value="✅ 模型已卸载")
-
-
-def load_svc_model(model_name: str):
-    """加载选中的 SVC 音色模型，并卸载之前的旧模型"""
-    global _active_svc_model
-    
+def svc_model_exists(model_name: str) -> bool:
+    """检查指定 SVC 模型的必要文件是否存在"""
     if not model_name or model_name == "无可用模型":
-        return gr.update(value="❌ 未选择模型")
+        return False
     
-    # 找到对应的模型信息
-    chosen = None
     for m in _sovits_models_available:
         if m['model_name'] == model_name:
-            chosen = m
-            break
-    
-    if not chosen:
-        return gr.update(value=f"❌ 未找到模型: {model_name}")
-    
-    # 卸载旧模型
-    unload_svc_model()
-    
-    # 加载新模型
-    from utils import SovitsInferenceConfig
-    
-    config = SovitsInferenceConfig(
-        model=chosen['model_path'],
-        spk=chosen['speaker_path'],
-        config=SOVITS_DEFAULT_CONFIG,  # base.yaml
-        voice=model_name,
-    )
-    
-    _active_svc_model = config
-    
-    import types
-    utils_mod = types.ModuleType('utils_mod')
-    utils_mod = __import__('utils', fromlist=['SOVITS_DEFAULT_CONFIG'])
-    config.config = utils_mod.SOVITS_DEFAULT_CONFIG
-    
-    return gr.update(value=f"✅ 已加载音色: {model_name}（模型: {chosen['model_path'].name}）")
+            return (m['model_path'].exists() and m['speaker_path'].exists())
+    return False
 
-
-#  Text-list helpers
 def load_json_file(file_obj):
     if file_obj is None:
         return "", "未选择文件", "[]"
@@ -340,6 +301,8 @@ def generate_audio(
     omnivoice_duration: float,
     use_seed: bool=False,
     seed: int=None,
+    svc_convert: bool = False,
+    svc_model_name: str = "",
     progress=gr.Progress(),
 ):
     if _model is None and _omnivoice_model is None:
@@ -373,9 +336,17 @@ def generate_audio(
     elif _current_model_type == 'OmniVoice' :
         tag = f"numstep{omnivoice_num_step}_speed{omnivoice_speed}_{ts}"
 
-    wav_list = []
-    individual_paths = []
-    log_lines = []
+    # 原始音频数据
+    wav_list: list[np.ndarray] = []
+
+    # 默认用于预览的音频
+    default_preview: str = ''
+
+    log_lines: list[str] = []
+
+    # SVC 转换后的音频数据
+    svc_wav_list: list[np.ndarray] = []
+
     total_steps = len(texts)
 
     if _current_model_type == "VoxCPM":
@@ -391,17 +362,58 @@ def generate_audio(
                 if use_seed :
                     print(f"Enabling seed: {seed}")
                     kwargs["seed"] = seed
+                
+                # 生成原始音频数据
                 wav = _model.generate(**kwargs)
+                wav_list.append(wav)
+
+                # 命名规则
                 fname = out_path / f"{i:05d}_{tag}.wav"
                 sf.write(str(fname), wav, sample_rate)
-                wav_list.append(wav)
-                individual_paths.append(str(fname))
-                log_lines.append(f"✅ [{i}/{len(texts)}] → {fname.name}")
+
+                # 每次生成音频，更新可预览音频
+                default_preview = str(fname)
+                
+                svc_ok = True
+                svc_sample_rate = 32000
+                # TODO: 简化模型检测流程
+                if svc_convert and svc_model_exists(svc_model_name) :
+                    for m in _sovits_models_available:
+                        if m['model_name'] == svc_model_name:
+                            try:
+                                # SVC 转换音频
+                                sr, converted_wav = sovits_convert_audio(
+                                    audio_filepath=str(fname),
+                                    model_name=svc_model_name,
+                                    model_path=m['model_path'],
+                                    speaker_path=m['speaker_path'],
+                                )
+                                svc_wav_list.append(converted_wav)
+                                svc_sample_rate = sr
+
+                                # 命名加上前缀
+                                svc_fname = out_path / f"svc_{i:05d}_{tag}.wav"
+                                sf.write(str(svc_fname), converted_wav, sr)
+
+                                default_preview = str(svc_fname)
+                            except Exception as svc_err:
+                                log_lines.append(f"⚠️ [{i}/{len(texts)}] → {fname.name} | SVC 转换失败: {svc_err}")
+                                svc_ok = False
+                            break
+                if svc_ok:
+                    log_lines.append(f"✅ [{i}/{len(texts)}] → {fname.name}")
             except Exception as e:
                 log_lines.append(f"❌ [{i}/{len(texts)}] 生成失败：{e}")
                 wav_list.append(np.zeros(int(sample_rate * 0.1), dtype=np.float32))
+            
+            # 更新进度条
             progress(i / total_steps, desc=f"Processing: {i}/{total_steps}")
-        merged_path = _merge_wavs(wav_list, sample_rate, out_path, tag, gap_seconds, merge_audio)
+
+        # 合并音频文件
+        merged_path = _merge_wavs(wav_list, sample_rate, out_path, tag, '', gap_seconds, merge_audio)
+        if svc_wav_list:
+            svc_merged_path = _merge_wavs(svc_wav_list, svc_sample_rate, out_path, tag, 'svc_', gap_seconds, merge_audio)
+
     elif _current_model_type == 'OmniVoice' :
         sample_rate = 24000
         for i, text in enumerate(texts, start=1):
@@ -414,26 +426,31 @@ def generate_audio(
                 if omnivoice_use_duration :
                     kwargs["duration"]  = omnivoice_duration
                 result = _omnivoice_model.generate(**kwargs)
+
                 wav = result[0] if isinstance(result, (list, tuple)) else result
                 fname = out_path / f"{i:05d}_{tag}.wav"
                 sf.write(str(fname), wav, sample_rate)
                 wav_list.append(wav)
-                individual_paths.append(str(fname))
+                default_preview = str(fname)
                 log_lines.append(f"✅ [{i}/{len(texts)}] → {fname.name}")
             except Exception as e:
                 log_lines.append(f"❌ [{i}/{len(texts)}] 生成失败：{e}")
                 wav_list.append(np.zeros(int(sample_rate * 0.1), dtype=np.float32))
+
+            # 更新进度条
             progress(i / total_steps, desc=f"Processing: {i}/{total_steps}")
-        merged_path = _merge_wavs(wav_list, sample_rate, out_path, tag, gap_seconds, merge_audio)
+        
+        # 合并音频文件
+        merged_path = _merge_wavs(wav_list, sample_rate, out_path, tag, '', gap_seconds, merge_audio)
 
     log = "\n".join(log_lines)
-    preview = merged_path if merged_path else (individual_paths[-1] if individual_paths else None)
+    preview = merged_path if merged_path else (default_preview if default_preview else None)
     texts_json = json.dumps(texts, ensure_ascii=False)
 
     return preview, log, texts_json
 
 
-def _merge_wavs(wav_list, sample_rate, out_path, tag, gap_seconds, merge_audio):
+def _merge_wavs(wav_list, sample_rate, out_path, tag, prefix, gap_seconds, merge_audio):
     if not merge_audio or not wav_list:
         return None
     silence = np.zeros(int(sample_rate * gap_seconds), dtype=np.float32)
@@ -443,7 +460,7 @@ def _merge_wavs(wav_list, sample_rate, out_path, tag, gap_seconds, merge_audio):
         if idx < len(wav_list) - 1:
             parts.append(silence)
     merged = np.concatenate(parts)
-    merged_fname = out_path / f"merged_{tag}.wav"
+    merged_fname = out_path / f"{prefix}merged_{tag}.wav"
     sf.write(str(merged_fname), merged, sample_rate)
     return str(merged_fname)
 
@@ -747,8 +764,7 @@ def build_ui():
                                                   value=True)
                         gap_seconds = gr.Slider(label="音频间隔 (秒)",
                                                 minimum=0.0, maximum=5.0,
-                                                step=0.1, value=0.5)
-
+                                                step=0.1, value=0.7)
                     with gr.Column(scale=1):
                         gr.HTML('<div class="section-title">参考音频</div>')
                         ref_audio_list = load_reference_audio()
@@ -759,21 +775,63 @@ def build_ui():
                         )
 
                         ref_audio_refresh_list = gr.Button('刷新参考音频', variant='primary')
+                        
+                        # ── SVC Section (inside right column, before reference audio) ──
+                        gr.HTML('<div class="section-title" style="margin-top:16px;">SVC 音色</div>')
+                        
+                        svc_convert_chk = gr.Checkbox(
+                            label="开启 SVC 转换",
+                            value=False,
+                        )
+                        svc_model_section = gr.Row(visible=False)
 
-                        gr.HTML('<div class="section-title">预览音频</div>')
-                        preview_audio = gr.Audio(label="最终音频预览", type="filepath")
+                        with svc_model_section:
+                            svc_model_list = gr.Dropdown(
+                                label="选择模型",
+                                choices=["无可用模型"],
+                                value=None,
+                            )
+
+                        svc_convert_chk.change(
+                            lambda on: gr.update(visible=on),
+                            inputs=[svc_convert_chk],
+                            outputs=[svc_model_section],
+                        )
+
+                        refresh_svc_btn = gr.Button("刷新模型列表", variant="primary")
+
+                        def _refresh_svc_models():
+                            global _sovits_models_available
+                            _sovits_models_available = get_sovits_model_list()
+                            choices = [m['model_name'] for m in _sovits_models_available] if _sovits_models_available else ["无可用模型"]
+                            default = choices[0] if (choices is not None) else None
+                            return gr.update(choices=choices, value=default)
+                        
+                        refresh_svc_btn.click(
+                            _refresh_svc_models,
+                            inputs=[],
+                            outputs=[svc_model_list],
+                        )
+                    
+                        def _refresh_ref_audio():
+                            paths = load_reference_audio()
+                            if not paths:
+                                return gr.update(value=None)
+                            return gr.update(choices=paths, value=paths[0])
+
+                        ref_audio_refresh_list.click(
+                            fn=_refresh_ref_audio,
+                            inputs=[],
+                            outputs=[ref_audio_path],
+                        )
 
                         ref_audio_path.change(
-                            lambda src: gr.update(value=parse_reference_info(src)['text']),
+                            lambda src: gr.update(value=parse_reference_info(src)['text']) if src else gr.nothing(),
                             inputs=[ref_audio_path],
                             outputs=[omnivoice_ref_text_field],
                         )
 
-                        ref_audio_refresh_list.click(
-                            lambda: gr.update(choices=load_reference_audio(), value=load_reference_audio()[0]),
-                            inputs=[],
-                            outputs=[ref_audio_path],
-                        )
+                        preview_audio = gr.Audio(label="预览音频", type="filepath")
 
                 gen_btn = gr.Button("🚀 开始生成", variant="primary")
 
@@ -807,7 +865,8 @@ def build_ui():
                         config_switch, text_source, textarea_input, json_texts_state,
                         ref_audio_path,
                         cfg_value, inference_timesteps, output_dir, gap_seconds, merge_audio,
-                        omnivoice_ref_text_field, num_step_slider, speed_slider, omnivoice_use_duration, duration_slider, seed_enabled, seed_value
+                        omnivoice_ref_text_field, num_step_slider, speed_slider, omnivoice_use_duration, duration_slider, seed_enabled, seed_value,
+                        svc_convert_chk, svc_model_list,
                     ],
                     outputs=[preview_audio, gen_log, generated_texts_state],
                 )
