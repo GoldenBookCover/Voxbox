@@ -49,6 +49,6 @@ def ensure_models(model_path: Path):
     if not os.path.exists(model_path / "rmvpe_pretrain/rmvpe2.pt"):
         dl.download("https://github.com/yxlllc/RMVPE/releases/download/230917/rmvpe.zip", model_path / "rmvpe.zip")
         with zipfile.ZipFile(model_path / "rmvpe.zip", "r") as zip_ref:
-            zip_ref.extractall("rmvpe_pretrain")
+            zip_ref.extractall(model_path / "rmvpe_pretrain")
             shutil.move(model_path / "rmvpe_pretrain/model.pt", model_path / "rmvpe_pretrain/rmvpe2.pt")
         os.remove(model_path / "rmvpe.zip")

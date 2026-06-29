@@ -100,7 +100,7 @@ def load_model(
 
 def svc_model_exists(model_name: str) -> bool:
     """检查指定 SVC 模型的必要文件是否存在"""
-    if not model_name or model_name == "无可用模型":
+    if not model_name or model_name == "NotAvailable":
         return False
     
     for m in _sovits_models_available:
@@ -684,14 +684,14 @@ def build_ui():
                         )
                         gr.HTML('<div class="section-title">文本输入</div>')
                         text_source = gr.Radio(
-                            label="文本来源",
+                            label="Text Source",
                             choices=["textarea", "json"],
                             value="textarea",
                         )
                         textarea_input = gr.Textbox(
-                            label="手动输入（每行一条）",
+                            label="One audio per line",
                             lines=12,
-                            placeholder="第一条文本\n第二条文本\n...",
+                            placeholder="Line 1\nLine 2\n...",
                         )
                         with gr.Group(visible=False) as json_group:
                             json_file = gr.File(label="上传 JSON 文本列表",
@@ -776,9 +776,9 @@ def build_ui():
                         )
 
                         gr.HTML('<div class="section-title">输出配置</div>')
-                        output_dir = gr.Textbox(label="输出目录", value="output",
+                        output_dir = gr.Textbox(label="Output Path", value="output",
                                                 placeholder="./output")
-                        merge_audio = gr.Checkbox(label="拼接所有音频为一个完整音频",
+                        merge_audio = gr.Checkbox(label="Merge into one audio",
                                                   value=True)
                         gap_seconds = gr.Slider(label="音频间隔 (秒)",
                                                 minimum=0.0, maximum=5.0,
@@ -787,26 +787,26 @@ def build_ui():
                         gr.HTML('<div class="section-title">参考音频</div>')
                         ref_audio_list = load_reference_audio()
                         ref_audio_path = gr.Dropdown(
-                            label="参考音频路径",
+                            label="Reference Audio",
                             choices=ref_audio_list,
                             value=ref_audio_list[0],
                         )
 
-                        ref_audio_refresh_list = gr.Button('刷新参考音频', variant='primary')
+                        ref_audio_refresh_list = gr.Button('Update Reference', variant='primary')
                         
                         # ── SVC Section (inside right column, before reference audio) ──
                         gr.HTML('<div class="section-title" style="margin-top:16px;">SVC 音色</div>')
                         
                         svc_convert_chk = gr.Checkbox(
-                            label="开启 SVC 转换",
+                            label="Enable SVC",
                             value=False,
                         )
                         svc_model_section = gr.Row(visible=False)
 
                         with svc_model_section:
                             svc_model_list = gr.Dropdown(
-                                label="选择模型",
-                                choices=["无可用模型"],
+                                label="SVC Model",
+                                choices=[""],
                                 value=None,
                             )
 
@@ -816,12 +816,12 @@ def build_ui():
                             outputs=[svc_model_section],
                         )
 
-                        refresh_svc_btn = gr.Button("刷新模型列表", variant="primary")
+                        refresh_svc_btn = gr.Button("Update SVC Model", variant="primary")
 
                         def _refresh_svc_models():
                             global _sovits_models_available
                             _sovits_models_available = get_sovits_model_list()
-                            choices = [m['model_name'] for m in _sovits_models_available] if _sovits_models_available else ["无可用模型"]
+                            choices = [m['model_name'] for m in _sovits_models_available] if _sovits_models_available else ["NotAvailable"]
                             default = choices[0] if (choices is not None) else None
                             return gr.update(choices=choices, value=default)
                         
