@@ -1,6 +1,6 @@
 import sys, os
 
-from whisper.audio import pad_or_trim
+from ..whisper.audio import pad_or_trim
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 import numpy as np
@@ -58,11 +58,11 @@ def pred_vec(model, wavPath, vecPath, device):
 hubert_m = None
 
 
-def hubert_infer(wavPath, vecPath):
+def hubert_infer(wavPath, vecPath, modelPath=''):
     global hubert_m
     device = "cuda" if torch.cuda.is_available() else "cpu"
     if hubert_m is None:
-        hubert_m = load_model(os.path.join(
+        hubert_m = load_model(os.path.join(modelPath,
             "hubert_pretrain", "hubert-soft-0d54a1f4.pt"), device)
     pred_vec(hubert_m, wavPath, vecPath, device)
 

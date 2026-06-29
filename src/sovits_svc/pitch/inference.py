@@ -124,8 +124,8 @@ def load_csv_pitch(path):
     return pitch
 
 
-def compute_save_f0_rmvpe(wav, pit, device):
-    predictor = RMVPEF0Predictor(hop_length=320, f0_min=50, f0_max=1100, device=device)
+def compute_save_f0_rmvpe(wav, pit, device, model_path):
+    predictor = RMVPEF0Predictor(hop_length=320, f0_min=50, f0_max=1100, device=device, model_path=model_path)
     audio, sampling_rate = soundfile.read(wav)
     if len(audio.shape) > 1:
         audio = librosa.to_mono(audio.transpose(1, 0))
@@ -145,7 +145,7 @@ def compute_save_f0_rmvpe(wav, pit, device):
                 f"{minute}m {seconds}s {millisecond:3d},{int(pitch[i])}", file=pitch_file)
 
 
-def pitch_infer(wav, pit, pit_type):
+def pitch_infer(wav, pit, pit_type, model_path=None):
     device = "cuda" if torch.cuda.is_available() else "cpu"
     # rmvpe不管是唱歌还是说话都比较稳定
     if pit_type == 'crepe_sing':
@@ -161,7 +161,10 @@ def pitch_infer(wav, pit, pit_type):
         pitch = compute_f0_salience(wav, device)
         save_csv_pitch(pitch, pit)
     else:   # 默认使用rmvpe
-        compute_save_f0_rmvpe(wav, pit, device)
+        if model_path is None :
+            compute_save_f0_rmvpe(wav, pit, device)
+        else :
+            compute_save_f0_rmvpe(wav, pit, device, model_path)
 
 
 if __name__ == "__main__":

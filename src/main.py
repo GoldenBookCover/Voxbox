@@ -21,7 +21,6 @@ from config import (
     ALLOWED_AUDIO_FORMAT,
 )
 
-
 from utils import (
     get_sovits_model_list,
     sovits_convert_audio,
@@ -303,6 +302,7 @@ def generate_audio(
     seed: int=None,
     svc_convert: bool = False,
     svc_model_name: str = "",
+    device: str = 'cuda',
     progress=gr.Progress(),
 ):
     if _model is None and _omnivoice_model is None:
@@ -342,10 +342,10 @@ def generate_audio(
     # 默认用于预览的音频
     default_preview: str = ''
 
-    log_lines: list[str] = []
-
     # SVC 转换后的音频数据
     svc_wav_list: list[np.ndarray] = []
+
+    log_lines: list[str] = []
 
     total_steps = len(texts)
 
@@ -374,34 +374,35 @@ def generate_audio(
                 # 每次生成音频，更新可预览音频
                 default_preview = str(fname)
                 
-                svc_ok = True
                 svc_sample_rate = 32000
-                # TODO: 简化模型检测流程
+
                 if svc_convert and svc_model_exists(svc_model_name) :
-                    for m in _sovits_models_available:
-                        if m['model_name'] == svc_model_name:
-                            try:
-                                # SVC 转换音频
-                                sr, converted_wav = sovits_convert_audio(
-                                    audio_filepath=str(fname),
-                                    model_name=svc_model_name,
-                                    model_path=m['model_path'],
-                                    speaker_path=m['speaker_path'],
-                                )
-                                svc_wav_list.append(converted_wav)
-                                svc_sample_rate = sr
+                    m = [i for i in _sovits_models_available if i['model_name'] == svc_model_name][0]
+                    try:
+                        # SVC 转换音频
+                        sr, converted_wav = sovits_convert_audio(
+                            audio_filepath=str(fname),
+                            model_name=svc_model_name,
+                            model_path=m['model_path'],
+                            speaker_path=m['speaker_path'],
+                            device=device,
+                        )
+                        svc_wav_list.append(converted_wav)
+                        svc_sample_rate = sr
 
-                                # 命名加上前缀
-                                svc_fname = out_path / f"svc_{i:05d}_{tag}.wav"
-                                sf.write(str(svc_fname), converted_wav, sr)
+                        # 命名加上前缀
+                        svc_fname = out_path / f"svc_{i:05d}_{tag}.wav"
+                        sf.write(str(svc_fname), converted_wav, sr)
+                    except Exception as svc_err:
+                        log_lines.append(f"⚠️ [{i}/{len(texts)}] → {fname.name} | SVC 转换失败: {svc_err}")
+                        svc_wav_list.append(np.zeros(int(svc_sample_rate * 0.1), dtype=np.float32))
+                    else :
+                        default_preview = str(svc_fname)
+                        log_lines.append(f"✅ [{i}/{len(texts)}] → {svc_fname.name}")
 
-                                default_preview = str(svc_fname)
-                            except Exception as svc_err:
-                                log_lines.append(f"⚠️ [{i}/{len(texts)}] → {fname.name} | SVC 转换失败: {svc_err}")
-                                svc_ok = False
-                            break
-                if svc_ok:
+                else :
                     log_lines.append(f"✅ [{i}/{len(texts)}] → {fname.name}")
+
             except Exception as e:
                 log_lines.append(f"❌ [{i}/{len(texts)}] 生成失败：{e}")
                 wav_list.append(np.zeros(int(sample_rate * 0.1), dtype=np.float32))
@@ -411,8 +412,7 @@ def generate_audio(
 
         # 合并音频文件
         merged_path = _merge_wavs(wav_list, sample_rate, out_path, tag, '', gap_seconds, merge_audio)
-        if svc_wav_list:
-            svc_merged_path = _merge_wavs(svc_wav_list, svc_sample_rate, out_path, tag, 'svc_', gap_seconds, merge_audio)
+        svc_merged_path = _merge_wavs(svc_wav_list, svc_sample_rate, out_path, tag, 'svc_', gap_seconds, merge_audio)
 
     elif _current_model_type == 'OmniVoice' :
         sample_rate = 24000
@@ -444,7 +444,7 @@ def generate_audio(
         merged_path = _merge_wavs(wav_list, sample_rate, out_path, tag, '', gap_seconds, merge_audio)
 
     log = "\n".join(log_lines)
-    preview = merged_path if merged_path else (default_preview if default_preview else None)
+    preview = svc_merged_path or merged_path or default_preview or None
     texts_json = json.dumps(texts, ensure_ascii=False)
 
     return preview, log, texts_json
@@ -866,7 +866,7 @@ def build_ui():
                         ref_audio_path,
                         cfg_value, inference_timesteps, output_dir, gap_seconds, merge_audio,
                         omnivoice_ref_text_field, num_step_slider, speed_slider, omnivoice_use_duration, duration_slider, seed_enabled, seed_value,
-                        svc_convert_chk, svc_model_list,
+                        svc_convert_chk, svc_model_list, device
                     ],
                     outputs=[preview_audio, gen_log, generated_texts_state],
                 )

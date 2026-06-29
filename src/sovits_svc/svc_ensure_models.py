@@ -1,53 +1,54 @@
 import os.path
 import shutil
 import zipfile
+from pathlib import Path
 
-import gdown
-import wget
+from pydownloader import Downloader
 
 
-def ensure_models():
-    if not os.path.exists("crepe/assets"):
-        os.makedirs("crepe/assets")
-    if not os.path.exists("crepe/assets/full.pth"):
-        wget.download("https://github.com/maxrmorrison/torchcrepe/raw/master/torchcrepe/assets/full.pth",
-                      out="crepe/assets/full.pth")
+def ensure_models(model_path: Path):
+    dl = Downloader()
+    if not os.path.exists(model_path / "crepe/assets"):
+        os.makedirs(model_path / "crepe/assets")
+    if not os.path.exists(model_path / "crepe/assets/full.pth"):
+        dl.download("https://github.com/maxrmorrison/torchcrepe/raw/master/torchcrepe/assets/full.pth",
+                      model_path / "crepe/assets/full.pth")
 
-    if not os.path.exists("hubert_pretrain"):
-        os.makedirs("hubert_pretrain")
-    if not os.path.exists("hubert_pretrain/hubert-soft-0d54a1f4.pt"):
-        wget.download("https://github.com/bshall/hubert/releases/download/v0.1/hubert-soft-0d54a1f4.pt",
-                      "hubert_pretrain/hubert-soft-0d54a1f4.pt")
+    if not os.path.exists(model_path / "hubert_pretrain"):
+        os.makedirs(model_path / "hubert_pretrain")
+    if not os.path.exists(model_path / "hubert_pretrain/hubert-soft-0d54a1f4.pt"):
+        dl.download("https://github.com/bshall/hubert/releases/download/v0.1/hubert-soft-0d54a1f4.pt",
+                      model_path / "hubert_pretrain/hubert-soft-0d54a1f4.pt")
 
-    if not os.path.exists("speaker_pretrain"):
-        os.makedirs("speaker_pretrain")
-    if not os.path.exists("speaker_pretrain/best_model.pth.tar"):
-        gdown.download("https://drive.google.com/file/d/1UPjQ2LVSIt3o-9QMKMJcdzT8aZRZCI-E/view?usp=drive_link",
-                       "speaker_pretrain/best_model.pth.tar", fuzzy=True)
+    if not os.path.exists(model_path / "speaker_pretrain"):
+        os.makedirs(model_path / "speaker_pretrain")
+    if not os.path.exists(model_path / "speaker_pretrain/best_model.pth.tar"):
+        dl.download("https://drive.google.com/file/d/1UPjQ2LVSIt3o-9QMKMJcdzT8aZRZCI-E/view?usp=drive_link",
+                       model_path / "speaker_pretrain/best_model.pth.tar")
 
-    if not os.path.exists("speaker_pretrain/config.json"):
-        wget.download(
+    if not os.path.exists(model_path / "speaker_pretrain/config.json"):
+        dl.download(
             "https://raw.githubusercontent.com/PlayVoice/so-vits-svc-5.0/bigvgan-mix-v2/speaker_pretrain/config.json",
-            "speaker_pretrain/config.json")
+            model_path / "speaker_pretrain/config.json")
 
-    if not os.path.exists("vits_pretrain"):
-        os.makedirs("vits_pretrain")
-    if not os.path.exists("vits_pretrain/sovits5.0.pretrain.pth"):
-        wget.download("https://github.com/PlayVoice/so-vits-svc-5.0/releases/download/5.0/sovits5.0.pretrain.pth",
-                      "vits_pretrain/sovits5.0.pretrain.pth")
+    if not os.path.exists(model_path / "vits_pretrain"):
+        os.makedirs(model_path / "vits_pretrain")
+    if not os.path.exists(model_path / "vits_pretrain/sovits5.0.pretrain.pth"):
+        dl.download("https://github.com/PlayVoice/so-vits-svc-5.0/releases/download/5.0/sovits5.0.pretrain.pth",
+                      model_path / "vits_pretrain/sovits5.0.pretrain.pth")
 
-    if not os.path.exists("whisper_pretrain"):
-        os.makedirs("whisper_pretrain")
-    if not os.path.exists("whisper_pretrain/large-v2.pt"):
-        wget.download(
+    if not os.path.exists(model_path / "whisper_pretrain"):
+        os.makedirs(model_path / "whisper_pretrain")
+    if not os.path.exists(model_path / "whisper_pretrain/large-v2.pt"):
+        dl.download(
             "https://openaipublic.azureedge.net/main/whisper/models/81f7c96c852ee8fc832187b0132e569d6c3065a3252ed18e56effd0b6a73e524/large-v2.pt",
-            "whisper_pretrain/large-v2.pt")
+            model_path / "whisper_pretrain/large-v2.pt")
 
-    if not os.path.exists("rmvpe_pretrain"):
-        os.makedirs("rmvpe_pretrain")
-    if not os.path.exists("rmvpe_pretrain/rmvpe2.pt"):
-        wget.download("https://github.com/yxlllc/RMVPE/releases/download/230917/rmvpe.zip", "rmvpe.zip")
-        with zipfile.ZipFile("rmvpe.zip", "r") as zip_ref:
+    if not os.path.exists(model_path / "rmvpe_pretrain"):
+        os.makedirs(model_path / "rmvpe_pretrain")
+    if not os.path.exists(model_path / "rmvpe_pretrain/rmvpe2.pt"):
+        dl.download("https://github.com/yxlllc/RMVPE/releases/download/230917/rmvpe.zip", model_path / "rmvpe.zip")
+        with zipfile.ZipFile(model_path / "rmvpe.zip", "r") as zip_ref:
             zip_ref.extractall("rmvpe_pretrain")
-            shutil.move("rmvpe_pretrain/model.pt", "rmvpe_pretrain/rmvpe2.pt")
-        os.remove("rmvpe.zip")
+            shutil.move(model_path / "rmvpe_pretrain/model.pt", model_path / "rmvpe_pretrain/rmvpe2.pt")
+        os.remove(model_path / "rmvpe.zip")

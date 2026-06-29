@@ -3,10 +3,10 @@ import shutil
 import sys, os
 from pathlib import Path
 
-from hubert.inference import hubert_infer
-from pitch.inference import pitch_infer
-from svc_ensure_models import ensure_models
-from whisper.inference import whisper_infer
+from .hubert.inference import hubert_infer
+from .pitch.inference import pitch_infer
+from .svc_ensure_models import ensure_models
+from .whisper.inference import whisper_infer
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
 import torch

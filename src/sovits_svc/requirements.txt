@@ -9,12 +9,11 @@ transformers
 tqdm
 librosa
 omegaconf
-gradio==5.34.2
 ruamel.yaml
 resampy
-numpy==1.24
+# numpy==1.24
+numpy
 chardet
-faiss-cpu==1.7.4
-gdown
-wget
+# faiss-cpu==1.7.4
+faiss-cpu
 praat-parselmouth

@@ -27,9 +27,10 @@ from sovits_svc import svc_inference
 from sovits_svc.hubert.inference import hubert_infer
 from sovits_svc.pitch.inference import pitch_infer
 from sovits_svc.whisper.inference import whisper_infer
+from sovits_svc.svc_ensure_models import ensure_models
 
 from omegaconf import OmegaConf
-from huggingface_hub import snapshot_download
+# from huggingface_hub import snapshot_download
 from sovits_svc.vits.models import SynthesizerInfer
 from sovits_svc.pitch import load_csv_pitch
 
@@ -50,17 +51,6 @@ def get_drive_id(url):
         return url
 
 
-def download_sovits_models(local_path: str):
-    snapshot_download(
-        repo_id="Jack202410/sovits-pretrain",
-        local_dir=local_path,
-        local_dir_use_symlinks=False,  # Don't use symlinks
-        local_files_only=False,  # Allow downloading new files
-        ignore_patterns=["*.git*"],  # Ignore git-related files
-        resume_download=True  # Resume interrupted downloads
-    )
-
-
 def get_sovits_model_list(model_root_path: Path=SOVITS_MODEL_PATH) -> list[dict[str, Any]] :
     """Find all sovits models under `model_root_path`
 
@@ -70,6 +60,7 @@ def get_sovits_model_list(model_root_path: Path=SOVITS_MODEL_PATH) -> list[dict[
     Returns:
         dict[str, Any]: models
     """
+    ensure_models(MODEL_PATH)
     model_list = []
 
     if not model_root_path.exists() :
@@ -152,36 +143,36 @@ def sovits_convert_audio(
     temp_dir.mkdir(parents=True, exist_ok=True)
 
     # 检查预训练模型是否存在，不存在就到网上下载
-    whisper_pretrain_path = MODEL_PATH / "whisper_pretrain" /"large-v2.pt"
-    if not whisper_pretrain_path.exists() :
-        download_sovits_models(str(MODEL_PATH))
+    # whisper_pretrain_path = MODEL_PATH / "whisper_pretrain" /"large-v2.pt"
+    # if not whisper_pretrain_path.exists() :
+    #     download_sovits_models(str(MODEL_PATH))
     
     rmvpe_pretrain_path = MODEL_PATH / "rmvpe_pretrain" / "rmvpe2.pt"
-    if not rmvpe_pretrain_path.exists() :
-        dl = Downloader()
-        dl.download("https://github.com/yxlllc/RMVPE/releases/download/230917/rmvpe.zip", temp_dir / "rmvpe.zip")
-        with zipfile.ZipFile(temp_dir / "rmvpe.zip", "r") as zip_ref:
-            zip_ref.extractall(rmvpe_pretrain_path.parent)
-            shutil.move(rmvpe_pretrain_path.with_name("model.pt"), rmvpe_pretrain_path)
-        os.remove(temp_dir / "rmvpe.zip")
+    # if not rmvpe_pretrain_path.exists() :
+    #     dl = Downloader()
+    #     dl.download("https://github.com/yxlllc/RMVPE/releases/download/230917/rmvpe.zip", temp_dir / "rmvpe.zip")
+    #     with zipfile.ZipFile(temp_dir / "rmvpe.zip", "r") as zip_ref:
+    #         zip_ref.extractall(rmvpe_pretrain_path.parent)
+    #         shutil.move(rmvpe_pretrain_path.with_name("model.pt"), rmvpe_pretrain_path)
+    #     os.remove(temp_dir / "rmvpe.zip")
 
     if (args.ppg is None):
         args.ppg = temp_dir / "svc_tmp.ppg.npy"
         print(
             f"Auto run : python whisper/inference.py -w {args.wave} -p {args.ppg}")
-        whisper_infer(args.wave, args.ppg, custom_whisper)
+        whisper_infer(args.wave, args.ppg, custom_whisper, MODEL_PATH)
 
     if (args.vec is None):
         args.vec = temp_dir / "svc_tmp.vec.npy"
         print(
             f"Auto run : python hubert/inference.py -w {args.wave} -v {args.vec}")
-        hubert_infer(args.wave, args.vec)
+        hubert_infer(args.wave, args.vec, str(MODEL_PATH))
 
     if (args.pit is None):
         args.pit = temp_dir / "svc_tmp.pit.csv"
         print(
             f"Auto run : python pitch/inference.py -w {args.wave} -p {args.pit}")
-        pitch_infer(args.wave, args.pit, args.pit_type)
+        pitch_infer(args.wave, args.pit, args.pit_type, rmvpe_pretrain_path)
 
     device = torch.device(device)
     hp = OmegaConf.load(args.config)
