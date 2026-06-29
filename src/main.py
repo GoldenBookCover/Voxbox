@@ -577,6 +577,24 @@ audio { filter: invert(1) hue-rotate(180deg); width: 100% !important; }
 }
 """
 
+shortcut_js = """
+<script>
+function shortcuts(e) {
+    var event = document.all ? window.event : e;
+    switch (e.target.tagName.toLowerCase()) {
+        case "input":
+        // case "textarea":
+        break;
+        default:
+        if (e.key.toLowerCase() == "e" && e.ctrlKey) {
+            document.getElementById("gen_btn").click();
+        }
+    }
+}
+document.addEventListener('keypress', shortcuts, false);
+</script>
+"""
+
 
 def build_ui():
     with gr.Blocks(title="Voxbox") as demo:
@@ -833,7 +851,7 @@ def build_ui():
 
                         preview_audio = gr.Audio(label="预览音频", type="filepath")
 
-                gen_btn = gr.Button("🚀 开始生成", variant="primary")
+                gen_btn = gr.Button("🚀 开始生成", variant="primary", elem_id="gen_btn")
 
                 with gr.Row(equal_height=False):
                     with gr.Column(scale=2):
@@ -974,4 +992,4 @@ def build_ui():
 if __name__ == "__main__":
     start_share_server()
     demo = build_ui()
-    demo.launch(css=DARK_CSS, share=False, server_name="0.0.0.0", server_port=17865, inbrowser=False)
+    demo.launch(css=DARK_CSS, js=shortcut_js, share=False, server_name="0.0.0.0", server_port=17865, inbrowser=True)
