@@ -3,12 +3,16 @@ embedded_env/
 __pycache__
 uv.lock
 .python-version
+.venv/
 
 # temp
+temp/
 cache/
-output/
+output*/
 share_pages/
+*.zip
 
 # assets
 reference_audio/
 .opencode/skills/
+models/

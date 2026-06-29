@@ -12,3 +12,4 @@ tqdm
 # voxcpm>=2.0.3
 voxcpm@git+https://github.com/DEVAIEXP/VoxCPM.git@feat-add-seed
 omnivoice>=0.1.5
+pydownloader@git+https://github.com/GoldenBookCover/pydownloader.git
