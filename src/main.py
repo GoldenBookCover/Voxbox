@@ -674,45 +674,7 @@ def build_ui():
             with gr.Tab("🎙 批量生成"):
 
                 with gr.Row(equal_height=False):
-
-                    with gr.Column(scale=1):
-                        gr.HTML('<div class="section-title">生成模式</div>')
-                        config_switch = gr.Radio(
-                            label="生成模式",
-                            choices=["批量生成", "单次生成"],
-                            value="批量生成",
-                        )
-                        gr.HTML('<div class="section-title">文本输入</div>')
-                        text_source = gr.Radio(
-                            label="Text Source",
-                            choices=["textarea", "json"],
-                            value="textarea",
-                        )
-                        textarea_input = gr.Textbox(
-                            label="One audio per line",
-                            lines=12,
-                            placeholder="Line 1\nLine 2\n...",
-                        )
-                        with gr.Group(visible=False) as json_group:
-                            json_file = gr.File(label="上传 JSON 文本列表",
-                                                file_types=[".json"])
-                            json_preview = gr.Textbox(label="预览", lines=6,
-                                                      interactive=False)
-                            json_status = gr.Textbox(label="", interactive=False,
-                                                     max_lines=1)
-
-                        text_source.change(
-                            lambda src: gr.update(visible=(src == "json")),
-                            inputs=[text_source],
-                            outputs=[json_group],
-                        )
-
-                        json_file.change(
-                            load_json_file,
-                            inputs=[json_file],
-                            outputs=[json_preview, json_status, json_texts_state],
-                        )
-
+                    # Model settings
                     with gr.Column(scale=1):
                         gr.HTML('<div class="section-title">模型配置</div>')
                         with gr.Column(visible=True) as voxcpm_params_row :
@@ -749,32 +711,6 @@ def build_ui():
                                 #value=parse_reference_info(ref_audio_path.value)['text'],
                             )
 
-                        seed_enabled.change(
-                            lambda on: gr.update(visible=on),
-                            inputs=[seed_enabled], outputs=[seed_value],
-                        )
-
-                        model_type.change(
-                            update_model_fields,
-                            inputs=[model_type],
-                            outputs=[model_path, device, 
-                                     omnivoice_advanced, voxcpm_advanced,
-                                     voxcpm_params_row, omnivoice_params_row,
-                                     omnivoice_ref_advanced],
-                        )
-
-                        omnivoice_use_duration.change(
-                            lambda src: gr.update(visible=src),
-                            inputs=[omnivoice_use_duration],
-                            outputs=[duration_slider],
-                        )
-
-                        omnivoice_use_whisper.change(
-                            lambda src: gr.update(visible=not src),
-                            inputs=[omnivoice_use_whisper],
-                            outputs=[omnivoice_ref_text_field],
-                        )
-
                         gr.HTML('<div class="section-title">输出配置</div>')
                         output_dir = gr.Textbox(label="Output Path", value="output",
                                                 placeholder="./output")
@@ -783,6 +719,8 @@ def build_ui():
                         gap_seconds = gr.Slider(label="音频间隔 (秒)",
                                                 minimum=0.0, maximum=5.0,
                                                 step=0.1, value=0.7)
+                    
+                    # Reference audio & voice
                     with gr.Column(scale=1):
                         gr.HTML('<div class="section-title">参考音频</div>')
                         ref_audio_list = load_reference_audio()
@@ -810,12 +748,6 @@ def build_ui():
                                 value=None,
                             )
 
-                        svc_convert_chk.change(
-                            lambda on: gr.update(visible=on),
-                            inputs=[svc_convert_chk],
-                            outputs=[svc_model_section],
-                        )
-
                         refresh_svc_btn = gr.Button("Update SVC Model", variant="primary")
 
                         def _refresh_svc_models():
@@ -824,12 +756,6 @@ def build_ui():
                             choices = [m['model_name'] for m in _sovits_models_available] if _sovits_models_available else ["NotAvailable"]
                             default = choices[0] if (choices is not None) else None
                             return gr.update(choices=choices, value=default)
-                        
-                        refresh_svc_btn.click(
-                            _refresh_svc_models,
-                            inputs=[],
-                            outputs=[svc_model_list],
-                        )
                     
                         def _refresh_ref_audio():
                             paths = load_reference_audio()
@@ -837,21 +763,37 @@ def build_ui():
                                 return gr.update(value=None)
                             return gr.update(choices=paths, value=paths[0])
 
-                        ref_audio_refresh_list.click(
-                            fn=_refresh_ref_audio,
-                            inputs=[],
-                            outputs=[ref_audio_path],
+                    with gr.Column(scale=1):
+                        gr.HTML('<div class="section-title">生成模式</div>', visible=False)
+                        config_switch = gr.Radio(
+                            label="生成模式",
+                            choices=["批量生成", "单次生成"],
+                            value="批量生成",
+                            visible=False,
                         )
-
-                        ref_audio_path.change(
-                            lambda src: gr.update(value=parse_reference_info(src)['text']) if src else gr.nothing(),
-                            inputs=[ref_audio_path],
-                            outputs=[omnivoice_ref_text_field],
+                        gr.HTML('<div class="section-title">文本输入</div>')
+                        text_source = gr.Radio(
+                            label="Text Source",
+                            choices=["textarea", "json"],
+                            value="textarea",
+                            visible=False,
                         )
+                        textarea_input = gr.Textbox(
+                            label="One audio per line",
+                            lines=12,
+                            placeholder="Line 1\nLine 2\n...",
+                        )
+                        with gr.Group(visible=False) as json_group:
+                            json_file = gr.File(label="上传 JSON 文本列表",
+                                                file_types=[".json"])
+                            json_preview = gr.Textbox(label="预览", lines=6,
+                                                      interactive=False)
+                            json_status = gr.Textbox(label="", interactive=False,
+                                                     max_lines=1)
 
-                        preview_audio = gr.Audio(label="预览音频", type="filepath")
+                        preview_audio = gr.Audio(label="Preview", type="filepath")
 
-                gen_btn = gr.Button("🚀 开始生成", variant="primary", elem_id="gen_btn")
+                gen_btn = gr.Button("🚀 Generate", variant="primary", elem_id="gen_btn")
 
                 with gr.Row(equal_height=False):
                     with gr.Column(scale=2):
@@ -877,6 +819,69 @@ def build_ui():
                     elem_id="share-url",
                 )
 
+                # Signals & Events
+                text_source.change(
+                    lambda src: gr.update(visible=(src == "json")),
+                    inputs=[text_source],
+                    outputs=[json_group],
+                )
+
+                json_file.change(
+                    load_json_file,
+                    inputs=[json_file],
+                    outputs=[json_preview, json_status, json_texts_state],
+                )
+
+                ref_audio_refresh_list.click(
+                    fn=_refresh_ref_audio,
+                    inputs=[],
+                    outputs=[ref_audio_path],
+                )
+
+                ref_audio_path.change(
+                    lambda src: gr.update(value=parse_reference_info(src)['text']) if src else gr.nothing(),
+                    inputs=[ref_audio_path],
+                    outputs=[omnivoice_ref_text_field],
+                )
+
+                seed_enabled.change(
+                    lambda on: gr.update(visible=on),
+                    inputs=[seed_enabled], outputs=[seed_value],
+                )
+
+                model_type.change(
+                    update_model_fields,
+                    inputs=[model_type],
+                    outputs=[model_path, device, 
+                                omnivoice_advanced, voxcpm_advanced,
+                                voxcpm_params_row, omnivoice_params_row,
+                                omnivoice_ref_advanced],
+                )
+
+                omnivoice_use_duration.change(
+                    lambda src: gr.update(visible=src),
+                    inputs=[omnivoice_use_duration],
+                    outputs=[duration_slider],
+                )
+
+                omnivoice_use_whisper.change(
+                    lambda src: gr.update(visible=not src),
+                    inputs=[omnivoice_use_whisper],
+                    outputs=[omnivoice_ref_text_field],
+                )
+
+                refresh_svc_btn.click(
+                    _refresh_svc_models,
+                    inputs=[],
+                    outputs=[svc_model_list],
+                )
+
+                svc_convert_chk.change(
+                    lambda on: gr.update(visible=on),
+                    inputs=[svc_convert_chk],
+                    outputs=[svc_model_section],
+                )
+                
                 gen_btn.click(
                     generate_audio,
                     inputs=[
@@ -978,12 +983,25 @@ def build_ui():
             input_ref_audio_path,
         ) :
             text_to_fill = parse_reference_info(input_ref_audio_path)['text']
-            return gr.update(value=text_to_fill)
+
+            sovits_model_list = get_sovits_model_list()
+            sovits_model_choices = [m['model_name'] for m in sovits_model_list] if sovits_model_list else ["NotAvailable"]
+            sovits_model_default = sovits_model_choices[0] if sovits_model_choices else None
+
+            return (
+                gr.update(value=text_to_fill),
+                gr.update(choices=sovits_model_choices, value=sovits_model_default),
+            )
 
         demo.load(
             fn=fill_in_default_values,
-            inputs=[ref_audio_path],
-            outputs=[omnivoice_ref_text_field],
+            inputs=[
+                ref_audio_path,
+            ],
+            outputs=[
+                omnivoice_ref_text_field,
+                svc_model_list,
+            ],
         )
 
     return demo
