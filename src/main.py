@@ -764,6 +764,7 @@ def build_ui():
                             return gr.update(choices=paths, value=paths[0])
 
                     with gr.Column(scale=1):
+                        # TODO: Remove config_switch
                         gr.HTML('<div class="section-title">生成模式</div>', visible=False)
                         config_switch = gr.Radio(
                             label="生成模式",
@@ -984,13 +985,13 @@ def build_ui():
         ) :
             text_to_fill = parse_reference_info(input_ref_audio_path)['text']
 
-            sovits_model_list = get_sovits_model_list()
-            sovits_model_choices = [m['model_name'] for m in sovits_model_list] if sovits_model_list else ["NotAvailable"]
-            sovits_model_default = sovits_model_choices[0] if sovits_model_choices else None
+            # FIXME: Cannot enable svc without manually updating list
+            # sovits_model_list = get_sovits_model_list()
+            # sovits_model_choices = [m['model_name'] for m in sovits_model_list] if sovits_model_list else ["NotAvailable"]
+            # sovits_model_default = sovits_model_choices[0] if sovits_model_choices else None
 
             return (
                 gr.update(value=text_to_fill),
-                gr.update(choices=sovits_model_choices, value=sovits_model_default),
             )
 
         demo.load(
@@ -1000,7 +1001,6 @@ def build_ui():
             ],
             outputs=[
                 omnivoice_ref_text_field,
-                svc_model_list,
             ],
         )
 
