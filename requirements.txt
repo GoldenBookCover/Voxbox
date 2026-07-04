@@ -2,7 +2,7 @@
 --extra-index-url https://download.pytorch.org/whl/cu129
 
 requests
-soundfile
+soundfile==0.12.1
 gradio>=6.14.0
 pydub
 torch==2.8.0
@@ -10,7 +10,7 @@ torchaudio==2.8.0
 torchvision==0.23.0
 tqdm
 # voxcpm>=2.0.3
-voxcpm@git+https://github.com/DEVAIEXP/VoxCPM.git@feat-add-seed
+voxcpm@git+https://github.com/GoldenBookCover/VoxCPM.git
 omnivoice>=0.1.5
 pydownloader@git+https://github.com/GoldenBookCover/pydownloader.git
 fsspec
@@ -20,11 +20,11 @@ scikit-learn
 scipy
 tensorboard
 transformers
-librosa
+librosa<0.11.0
 omegaconf
 ruamel.yaml
 resampy
-numpy
+numpy>=1.24.3,<2.0
 chardet
 faiss-cpu
 praat-parselmouth

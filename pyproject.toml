@@ -9,13 +9,12 @@ dependencies = [
     "faiss-cpu>=1.14.3",
     "fsspec>=2025.3.0",
     "gradio>=6.14.0",
-    "librosa>=0.11.0",
+    "librosa<0.11.0",
     "matplotlib>=3.11.0",
-    "numpy>=2.4.4",
+    "numpy>=1.24.3,<2.0",
     "omegaconf>=2.3.1",
     "omnivoice>=0.1.5",
     "praat-parselmouth>=0.4.7",
-    "pydownloader",
     "pydub>=0.25.1",
     "pyworld>=0.3.5",
     "requests>=2.34.2",
@@ -23,7 +22,7 @@ dependencies = [
     "ruamel-yaml>=0.19.1",
     "scikit-learn>=1.9.0",
     "scipy>=1.17.1",
-    "soundfile>=0.14.0",
+    "soundfile==0.12.1",
     "tensorboard>=2.20.0",
     "torch==2.8.0",
     "torchaudio==2.8.0",
@@ -31,6 +30,7 @@ dependencies = [
     "tqdm>=4.68.2",
     "transformers>=5.11.0",
     "voxcpm",
+    "pydownloader",
 ]
 
 [tool.uv.sources]
@@ -43,8 +43,8 @@ torchaudio = [
 torchvision = [
   { index = "pytorch-cu129", marker = "sys_platform == 'win32' or sys_platform == 'linux'" },
 ]
-voxcpm = { git = "https://github.com/DEVAIEXP/VoxCPM.git", rev = "feat-add-seed" }
-pydownloader = { path = "../pydownloader" }
+pydownloader = { git = "https://github.com/GoldenBookCover/pydownloader.git" }
+voxcpm = { git = "https://github.com/GoldenBookCover/VoxCPM.git" }
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
