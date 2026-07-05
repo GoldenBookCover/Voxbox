@@ -14,6 +14,6 @@ share_pages/
 
 # assets
 reference_audio/
-.opencode/skills/
+.opencode/
 models/
 checkpoints/
