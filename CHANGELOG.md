@@ -1,4 +1,38 @@
 # Changelog
+## [v1.3.6](https://github.com/GoldenBookCover/Voxbox)
+
+### Changes
+- refactor: init & update env separately ([f88a562](https://github.com/GoldenBookCover/Voxbox/commit/f88a562))
+
+---
+
+## [v1.3.5](https://github.com/GoldenBookCover/Voxbox)
+
+### Changes
+- chore: update dependencies ([e47ad8a](https://github.com/GoldenBookCover/Voxbox/commit/e47ad8a))
+
+---
+
+## [v1.3.4](https://github.com/GoldenBookCover/Voxbox)
+
+### Changes
+- feat: re-organize ui ([7aae3ce](https://github.com/GoldenBookCover/Voxbox/commit/7aae3ce))
+
+---
+
+## [v1.3.3](https://github.com/GoldenBookCover/Voxbox)
+
+### Changes
+- chore: update requirements.txt ([a6d4f00](https://github.com/GoldenBookCover/Voxbox/commit/a6d4f00))
+
+---
+
+## [v1.3.2](https://github.com/GoldenBookCover/Voxbox)
+
+### Changes
+- fix: correct model download path ([f50c7c1](https://github.com/GoldenBookCover/Voxbox/commit/f50c7c1))
+
+---
 
 ## [v1.3.1](https://github.com/GoldenBookCover/Voxbox)
 
@@ -22,4 +56,3 @@
 
 ### Changes
 - chore: voxcpm custom seed fork ([6129e8e](https://github.com/GoldenBookCover/Voxbox/commit/6129e8e))
-
