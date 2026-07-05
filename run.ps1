@@ -1,4 +1,4 @@
-﻿# ==============================================================================
+# ==============================================================================
 # Desktop Python Application Launcher
 # ==============================================================================
 # 使用说明：右键 -> 使用 PowerShell 运行，或在 PowerShell 中执行
@@ -58,13 +58,25 @@ function Set-AppEnvVars {
 }
 
 function Write-Log {
-    param([System.Windows.Forms.RichTextBox]$Box, [string]$Message, [string]$Color = "White")
-    $Box.SelectionStart  = $Box.TextLength
-    $Box.SelectionLength = 0
-    $Box.SelectionColor  = [System.Drawing.ColorTranslator]::FromHtml($Color)
-    $Box.AppendText("$Message`n")
-    $Box.ScrollToCaret()
-    $Box.Refresh()
+    param(
+        [System.Windows.Forms.RichTextBox]$Log,
+        [string]$Message,
+        [string]$ColorHex
+    )
+    $start = $Log.TextLength
+    $Log.AppendText("`n$Message")
+    $length = $Log.TextLength - $start
+    if ($length -gt 0) {
+        $Log.Select($start, $length)
+        try {
+            $Log.SelectionColor = [System.Drawing.ColorTranslator]::FromHtml($ColorHex)
+        } catch {
+            $Log.SelectionColor = [System.Drawing.Color]::White
+        }
+    }
+    $Log.SelectionStart = $Log.TextLength
+    $Log.SelectionLength = 0
+    $Log.SelectionColor = [System.Drawing.Color]::White
 }
 
 # ==============================================================================
@@ -83,7 +95,7 @@ $Form.Font            = New-Object System.Drawing.Font("Consolas", 16)
 
 # ---------- 标题标签 ----------
 $LabelTitle = New-Object System.Windows.Forms.Label
-$LabelTitle.Text      = "◆  VoxCPM Studio Launcher"
+$LabelTitle.Text      = "◆  VoxBox Launcher"
 $LabelTitle.Font      = New-Object System.Drawing.Font("Consolas", 23, [System.Drawing.FontStyle]::Bold)
 $LabelTitle.ForeColor = [System.Drawing.ColorTranslator]::FromHtml("#00d4ff")
 $LabelTitle.Location  = New-Object System.Drawing.Point(20, 16)
@@ -120,12 +132,12 @@ function New-StyledButton {
     return $btn
 }
 
-$BtnLaunch  = New-StyledButton "▶  启动主程序"   0   "#00ff88"
-$BtnInit    = New-StyledButton "⚙  初始化环境"   152 "#00d4ff"
-$BtnUpdate  = New-StyledButton "↑  检查更新"     304 "#ffaa00"
+$BtnLaunch = New-StyledButton "▶  启动程序"   0   "#00ff88"
+$BtnUpdateEnv = New-StyledButton "⚙  更新环境"   152 "#00d4ff"
+$BtnUpdate = New-StyledButton "↑  检查更新"     304 "#ffaa00"
 $BtnSysInfo = New-StyledButton "◉  系统信息"     456 "#cc88ff"
 
-$BtnPanel.Controls.AddRange(@($BtnLaunch, $BtnInit, $BtnUpdate, $BtnSysInfo))
+$BtnPanel.Controls.AddRange(@($BtnLaunch, $BtnUpdateEnv, $BtnUpdate, $BtnSysInfo))
 
 # ---------- 状态标签 ----------
 $StatusLabel = New-Object System.Windows.Forms.Label
@@ -192,6 +204,79 @@ function Update-ProcessButtonState {
         $BtnLaunch.ForeColor   = [System.Drawing.ColorTranslator]::FromHtml("#00ff88")
         $BtnLaunch.BackColor  = [System.Drawing.ColorTranslator]::FromHtml("#1a1d27")
         $BtnLaunch.FlatAppearance.BorderColor = [System.Drawing.ColorTranslator]::FromHtml("#00ff88")
+    }
+}
+
+function Initialize-Environment {
+    $StatusLabel.Text = "正在初始化环境..."
+    Write-Log $LogBox "`n[初始化] ────────────────────────────" "#00d4ff"
+    [System.Windows.Forms.Application]::DoEvents()
+    
+    # 下载嵌入式 Python
+    $ZipPath = Join-Path $env:TEMP "python-embed.zip"
+    Write-Log $LogBox "[下载] $EmbedPythonUrl" "#888888"
+    try {
+        $wc = New-Object System.Net.WebClient
+        $wc.DownloadFile($EmbedPythonUrl, $ZipPath)
+        Write-Log $LogBox "[成功] Python 压缩包下载完成。" "#00d4ff"
+    } catch {
+        Write-Log $LogBox "[错误] 下载失败：$($_.Exception.Message)" "#ff4466"
+        $StatusLabel.Text = "下载失败"
+        return
+    }
+    
+    # if (Test-Path $EmbeddedEnv) {
+    #     Write-Log $LogBox "[信息] 清理旧的 embedded_env..." "#888888"
+    #     Remove-Item -Recurse -Force $EmbeddedEnv
+    # }
+    # 解压到 embedded_env
+    Write-Log $LogBox "[解压] 解压到 $EmbeddedEnv ..." "#888888"
+    try {
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        [System.IO.Compression.ZipFile]::ExtractToDirectory($ZipPath, $EmbeddedEnv)
+        Write-Log $LogBox "[成功] Python 解压完成。" "#00d4ff"
+    } catch {
+        Write-Log $LogBox "[错误] 解压失败：$($_.Exception.Message)" "#ff4466"
+        $StatusLabel.Text = "解压失败"
+        return
+    }
+    
+    # 修改 ._pth 文件以启用 site-packages（嵌入式 Python 默认禁用）
+    $PthFile = Get-ChildItem -Path $EmbeddedEnv -Filter "*._pth" | Select-Object -First 1
+    if ($PthFile) {
+        $PthContent = Get-Content $PthFile.FullName -Raw
+        $PthContent = $PthContent -replace "#import site", "import site"
+        Set-Content $PthFile.FullName $PthContent
+        Write-Log $LogBox "[配置] 已启用 site-packages（$($PthFile.Name)）" "#888888"
+    }
+    
+    # 下载 get-pip.py
+    $GetPipPath = Join-Path $env:TEMP "get-pip.py"
+    Write-Log $LogBox "[下载] get-pip.py ..." "#888888"
+    try {
+        $wc.DownloadFile($GetPipUrl, $GetPipPath)
+        Write-Log $LogBox "[成功] get-pip.py 下载完成。" "#00d4ff"
+    } catch {
+        Write-Log $LogBox "[错误] get-pip.py 下载失败：$($_.Exception.Message)" "#ff4466"
+        $StatusLabel.Text = "get-pip 下载失败"
+        return
+    }
+    
+    # 安装 pip
+    Write-Log $LogBox "[安装] 正在安装 pip..." "#888888"
+    try {
+        $proc = Start-Process -FilePath $PythonExe -ArgumentList "`"$GetPipPath`"" `
+            -WorkingDirectory $EmbeddedEnv -Wait -PassThru -NoNewWindow
+        if ($proc.ExitCode -ne 0) {
+            Write-Log $LogBox "[错误] pip 安装失败，退出码：$($proc.ExitCode)" "#ff4466"
+            $StatusLabel.Text = "pip 安装失败"
+            return
+        }
+        Write-Log $LogBox "[成功] pip 安装完成。" "#00d4ff"
+    } catch {
+        Write-Log $LogBox "[错误] $($_.Exception.Message)" "#ff4466"
+        $StatusLabel.Text = "pip 安装异常"
+        return
     }
 }
 
@@ -274,78 +359,12 @@ $BtnLaunch.Add_Click({
 })
 
 # ==============================================================================
-# 按钮 2：初始化环境
+# 按钮 2：更新环境
 # ==============================================================================
-$BtnInit.Add_Click({
-    $StatusLabel.Text = "正在初始化环境..."
-    Write-Log $LogBox "`n[初始化] ────────────────────────────" "#00d4ff"
-    [System.Windows.Forms.Application]::DoEvents()
-
-    # 下载嵌入式 Python
-    $ZipPath = Join-Path $env:TEMP "python-embed.zip"
-    Write-Log $LogBox "[下载] $EmbedPythonUrl" "#888888"
-    try {
-        $wc = New-Object System.Net.WebClient
-        $wc.DownloadFile($EmbedPythonUrl, $ZipPath)
-        Write-Log $LogBox "[成功] Python 压缩包下载完成。" "#00d4ff"
-    } catch {
-        Write-Log $LogBox "[错误] 下载失败：$($_.Exception.Message)" "#ff4466"
-        $StatusLabel.Text = "下载失败"
-        return
-    }
-
-    # 解压到 embedded_env
-    if (Test-Path $EmbeddedEnv) {
-        Write-Log $LogBox "[信息] 清理旧的 embedded_env..." "#888888"
-        Remove-Item -Recurse -Force $EmbeddedEnv
-    }
-    Write-Log $LogBox "[解压] 解压到 $EmbeddedEnv ..." "#888888"
-    try {
-        Add-Type -AssemblyName System.IO.Compression.FileSystem
-        [System.IO.Compression.ZipFile]::ExtractToDirectory($ZipPath, $EmbeddedEnv)
-        Write-Log $LogBox "[成功] Python 解压完成。" "#00d4ff"
-    } catch {
-        Write-Log $LogBox "[错误] 解压失败：$($_.Exception.Message)" "#ff4466"
-        $StatusLabel.Text = "解压失败"
-        return
-    }
-
-    # 修改 ._pth 文件以启用 site-packages（嵌入式 Python 默认禁用）
-    $PthFile = Get-ChildItem -Path $EmbeddedEnv -Filter "*._pth" | Select-Object -First 1
-    if ($PthFile) {
-        $PthContent = Get-Content $PthFile.FullName -Raw
-        $PthContent = $PthContent -replace "#import site", "import site"
-        Set-Content $PthFile.FullName $PthContent
-        Write-Log $LogBox "[配置] 已启用 site-packages（$($PthFile.Name)）" "#888888"
-    }
-
-    # 下载 get-pip.py
-    $GetPipPath = Join-Path $env:TEMP "get-pip.py"
-    Write-Log $LogBox "[下载] get-pip.py ..." "#888888"
-    try {
-        $wc.DownloadFile($GetPipUrl, $GetPipPath)
-        Write-Log $LogBox "[成功] get-pip.py 下载完成。" "#00d4ff"
-    } catch {
-        Write-Log $LogBox "[错误] get-pip.py 下载失败：$($_.Exception.Message)" "#ff4466"
-        $StatusLabel.Text = "get-pip 下载失败"
-        return
-    }
-
-    # 安装 pip
-    Write-Log $LogBox "[安装] 正在安装 pip..." "#888888"
-    try {
-        $proc = Start-Process -FilePath $PythonExe -ArgumentList "`"$GetPipPath`"" `
-            -WorkingDirectory $EmbeddedEnv -Wait -PassThru -NoNewWindow
-        if ($proc.ExitCode -ne 0) {
-            Write-Log $LogBox "[错误] pip 安装失败，退出码：$($proc.ExitCode)" "#ff4466"
-            $StatusLabel.Text = "pip 安装失败"
-            return
-        }
-        Write-Log $LogBox "[成功] pip 安装完成。" "#00d4ff"
-    } catch {
-        Write-Log $LogBox "[错误] $($_.Exception.Message)" "#ff4466"
-        $StatusLabel.Text = "pip 安装异常"
-        return
+$BtnUpdateEnv.Add_Click({
+    # 如果环境不存在，则先初始化
+    if (-not (Test-Path $EmbeddedEnv)) {
+        Initialize-Environment
     }
 
     # 安装第三方依赖
@@ -371,12 +390,12 @@ $BtnInit.Add_Click({
     $EmbedPythonVersion | Set-Content $PythonVersionFile
 
     Write-Log $LogBox "──────────────────────────────────────" "#333355"
-    Write-Log $LogBox "[完成] 环境初始化成功！✓" "#00ff88"
-    $StatusLabel.Text = "环境初始化完成"
+    Write-Log $LogBox "[完成] 环境更新成功！✓" "#00ff88"
+    $StatusLabel.Text = "环境更新完成"
 
     [System.Windows.Forms.MessageBox]::Show(
-        "嵌入式 Python 环境初始化成功！`nPython 版本：$EmbedPythonVersion",
-        "初始化完成",
+        "嵌入式 Python 环境更新成功！`nPython 版本：$EmbedPythonVersion",
+        "更新完成",
         [System.Windows.Forms.MessageBoxButtons]::OK,
         [System.Windows.Forms.MessageBoxIcon]::Information
     ) | Out-Null
