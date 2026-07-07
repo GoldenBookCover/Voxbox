@@ -580,8 +580,8 @@ shortcut_js = """
 function shortcuts(e) {
     var event = document.all ? window.event : e;
     switch (e.target.tagName.toLowerCase()) {
-        case "input":
-        // case "textarea":
+        case "not-a-input":
+        case "not-a-textarea":
         break;
         default:
         if (e.key.toLowerCase() == "e" && e.ctrlKey) {
@@ -595,7 +595,7 @@ document.addEventListener('keypress', shortcuts, false);
 
 
 def build_ui():
-    with gr.Blocks(title="Voxbox") as demo:
+    with gr.Blocks(title="Voxbox") as gr_gui:
 
         json_texts_state = gr.State("[]")
         generated_texts_state = gr.State("[]")   # ← texts from last generation
@@ -992,7 +992,7 @@ def build_ui():
                 gr.update(value=text_to_fill),
             )
 
-        demo.load(
+        gr_gui.load(
             fn=fill_in_default_values,
             inputs=[
                 ref_audio_path,
@@ -1000,12 +1000,13 @@ def build_ui():
             outputs=[
                 omnivoice_ref_text_field,
             ],
+            # js=shortcut_js,
         )
 
-    return demo
+    return gr_gui
 
 
 if __name__ == "__main__":
     start_share_server()
-    demo = build_ui()
-    demo.launch(css=DARK_CSS, js=shortcut_js, share=False, server_name="0.0.0.0", server_port=17865, inbrowser=True)
+    gr_gui = build_ui()
+    gr_gui.launch(css=DARK_CSS, share=False, server_name="0.0.0.0", server_port=17865, inbrowser=True)
