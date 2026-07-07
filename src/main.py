@@ -6,9 +6,7 @@ import secrets
 import threading
 from http.server import HTTPServer, SimpleHTTPRequestHandler
 from pathlib import Path
-from pprint import pp
 
-import torch
 import gradio as gr
 import soundfile as sf
 import numpy as np
@@ -649,15 +647,15 @@ def build_ui():
                              # voxcpm_params_row, omnivoice_params_row,
                              # omnivoice_ref_advanced],
                     if model_type == "OmniVoice":
-                        return (gr.update(value="k2-fsa/OmniVoice"), gr.update(visible=False),
+                        return (gr.update(value="NotAvailable"), gr.update(visible=False),
                                 gr.update(visible=True), gr.update(visible=False),
                                 gr.update(visible=False), gr.update(visible=True),
-                                gr.update(visible=True))
+                                gr.update(visible=True), gr.update(interactive=False))
                     elif model_type == 'VoxCPM' :
                         return (gr.update(value="openbmb/VoxCPM2"), gr.update(visible=True),
                                 gr.update(visible=False), gr.update(visible=True),
                                 gr.update(visible=True), gr.update(visible=False),
-                                gr.update(visible=False))
+                                gr.update(visible=False), gr.update(interactive=True))
 
                 load_btn = gr.Button("⚡ 加载模型", variant="primary")
                 model_status = gr.Textbox(label="状态", interactive=False)
@@ -856,7 +854,7 @@ def build_ui():
                     outputs=[model_path, device, 
                                 omnivoice_advanced, voxcpm_advanced,
                                 voxcpm_params_row, omnivoice_params_row,
-                                omnivoice_ref_advanced],
+                                omnivoice_ref_advanced, load_btn],
                 )
 
                 omnivoice_use_duration.change(

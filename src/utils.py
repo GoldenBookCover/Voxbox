@@ -142,19 +142,7 @@ def sovits_convert_audio(
         shutil.rmtree(temp_dir)
     temp_dir.mkdir(parents=True, exist_ok=True)
 
-    # 检查预训练模型是否存在，不存在就到网上下载
-    # whisper_pretrain_path = MODEL_PATH / "whisper_pretrain" /"large-v2.pt"
-    # if not whisper_pretrain_path.exists() :
-    #     download_sovits_models(str(MODEL_PATH))
-    
     rmvpe_pretrain_path = MODEL_PATH / "rmvpe_pretrain" / "rmvpe2.pt"
-    # if not rmvpe_pretrain_path.exists() :
-    #     dl = Downloader()
-    #     dl.download("https://github.com/yxlllc/RMVPE/releases/download/230917/rmvpe.zip", temp_dir / "rmvpe.zip")
-    #     with zipfile.ZipFile(temp_dir / "rmvpe.zip", "r") as zip_ref:
-    #         zip_ref.extractall(rmvpe_pretrain_path.parent)
-    #         shutil.move(rmvpe_pretrain_path.with_name("model.pt"), rmvpe_pretrain_path)
-    #     os.remove(temp_dir / "rmvpe.zip")
 
     if (args.ppg is None):
         args.ppg = temp_dir / "svc_tmp.ppg.npy"
