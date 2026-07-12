@@ -320,19 +320,20 @@ def generate_audio(
     if not texts:
         return None, "❌ 文本列表为空，请输入或上传文本", "[]"
 
+    ref_num = ref_audio_path.split('-', 1)[0]
     ref_audio_path = str(REFERENCE_AUDIO_DIR / ref_audio_path)
     if not ref_audio_path or not os.path.isfile(ref_audio_path):
         return None, f"❌ 参考音频路径无效：{ref_audio_path}", "[]"
-
+    
     # Forbidden full path
     out_path = BASE_DIR / output_dir.lstrip('/')
     out_path.mkdir(parents=True, exist_ok=True)
 
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     if _current_model_type == "VoxCPM" :
-        tag = f"cfg{cfg_value}_step{inference_timesteps}_{ts}" 
+        tag = f"ref{ref_num}_cfg{cfg_value}_step{inference_timesteps}_{ts}" 
     elif _current_model_type == 'OmniVoice' :
-        tag = f"numstep{omnivoice_num_step}_speed{omnivoice_speed}_{ts}"
+        tag = f"ref{ref_num}_numstep{omnivoice_num_step}_speed{omnivoice_speed}_{ts}"
 
     # 原始音频数据
     wav_list: list[np.ndarray] = []
