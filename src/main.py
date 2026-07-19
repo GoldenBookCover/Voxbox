@@ -344,6 +344,8 @@ def generate_audio(
     # SVC 转换后的音频数据
     svc_wav_list: list[np.ndarray] = []
 
+    svc_sample_rate = 32000
+
     log_lines: list[str] = []
 
     total_steps = len(texts)
@@ -372,8 +374,6 @@ def generate_audio(
 
                 # 每次生成音频，更新可预览音频
                 default_preview = str(fname)
-                
-                svc_sample_rate = 32000
 
                 if svc_convert and svc_model_exists(svc_model_name) :
                     m = [i for i in _sovits_models_available if i['model_name'] == svc_model_name][0]
