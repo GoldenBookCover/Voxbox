@@ -708,7 +708,7 @@ def build_ui():
                 lora_enabled = gr.Checkbox(label="启用 LoRA", value=False)
                 lora_list = scan_lora_checkpoints()
                 lora_select = gr.Dropdown(
-                    label="LoRA 模型",
+                    label="",
                     choices=lora_list,
                     value=lora_list[0],
                     visible=False,
