@@ -108,7 +108,7 @@ def load_model(
     omnivoice_device_map: str,
     omnivoice_dtype: str,
     lora_enabled: bool=False,
-    lora_name: str="None",
+    lora_name: str="NotAvailable",
 ) -> str:
     global _model, _omnivoice_model, _current_model_type
     try:
@@ -132,7 +132,7 @@ def load_model(
 
             lora_config = None
             lora_weights_path = None
-            if lora_enabled and lora_name and lora_name != "None":
+            if lora_enabled and lora_name and lora_name != "NotAvailable":
                 full_lora_path = LORA_DIR / lora_name
                 if full_lora_path.exists():
                     lora_weights_path = str(full_lora_path)
@@ -150,7 +150,7 @@ def load_model(
             )
             _current_model_type = "VoxCPM"
             
-            lora_info = f"  |  LoRA：{lora_name}" if (lora_enabled and lora_name and lora_name != "None") else ""
+            lora_info = f"  |  LoRA：{lora_name}" if (lora_enabled and lora_name and lora_name != "NotAvailable") else ""
             return f"✅ VoxCPM 加载成功：{model_path}  |  设备：{device}  |  降噪器：{'开启' if voxcpm_load_denoiser else '关闭'}{lora_info}"
     except Exception as e:
         _model = None
