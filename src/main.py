@@ -710,7 +710,7 @@ def build_ui():
                 lora_list_first = lora_list[0] if lora_list else 'NotAvailable'
                 lora_select = gr.Dropdown(
                     label="",
-                    choices=lora_list,
+                    choices=lora_list if lora_list else ['NotAvailable'],
                     value=lora_list_first,
                     visible=False,
                 )
