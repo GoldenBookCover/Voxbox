@@ -24,6 +24,50 @@ from utils import (
     sovits_convert_audio,
 )
 
+# ── LoRA helpers ──
+LORA_DIR = BASE_DIR / "models" / "lora"
+
+
+def scan_lora_checkpoints() -> list[str]:
+    checkpoints: list[str] = []
+    if not LORA_DIR.exists():
+        return checkpoints
+    for entry in sorted(LORA_DIR.iterdir(), reverse=True):
+        if entry.is_dir() and (entry / "lora_weights.safetensors").exists():
+            checkpoints.append(entry.name)
+    return checkpoints
+
+
+def _get_default_lora_config():
+    from voxcpm.model.voxcpm import LoRAConfig
+
+    return LoRAConfig(
+        enable_lm=True,
+        enable_dit=True,
+        r=32,
+        alpha=16,
+        target_modules_lm=["q_proj", "v_proj", "k_proj", "o_proj"],
+        target_modules_dit=["q_proj", "v_proj", "k_proj", "o_proj"],
+    )
+
+
+def _load_lora_config_from_checkpoint(lora_path: Path):
+    config_file = lora_path / "lora_config.json"
+    if not config_file.exists():
+        return None, None
+    try:
+        with open(config_file, "r", encoding="utf-8") as f:
+            info = json.load(f)
+        lora_cfg_dict = info.get("lora_config", {})
+        base_model = info.get("base_model")
+        if lora_cfg_dict:
+            from voxcpm.model.voxcpm import LoRAConfig
+
+            return LoRAConfig(**lora_cfg_dict), base_model
+    except Exception as exc:
+        print(f"[LoRA] Warning: {exc}")
+    return None, None
+
 
 def start_share_server():
     """Serve `SHARE_DIR` directory on SHARE_SERVER_PORT in a background thread."""
@@ -63,6 +107,8 @@ def load_model(
     voxcpm_load_denoiser: bool,
     omnivoice_device_map: str,
     omnivoice_dtype: str,
+    lora_enabled: bool=False,
+    lora_name: str="None",
 ) -> str:
     global _model, _omnivoice_model, _current_model_type
     try:
@@ -83,13 +129,29 @@ def load_model(
         elif model_type == 'VoxCPM' :
             from voxcpm import VoxCPM
             _omnivoice_model = None
+
+            lora_config = None
+            lora_weights_path = None
+            if lora_enabled and lora_name and lora_name != "None":
+                full_lora_path = LORA_DIR / lora_name
+                if full_lora_path.exists():
+                    lora_weights_path = str(full_lora_path)
+                    lora_config, _base_model = _load_lora_config_from_checkpoint(full_lora_path)
+                    if lora_config is None:
+                        lora_config = _get_default_lora_config()
+                    print(f"Loading LoRA from {lora_weights_path}")
+
             _model = VoxCPM.from_pretrained(
                 model_path,
                 load_denoiser=voxcpm_load_denoiser,
                 device=device,
+                lora_config=lora_config,
+                lora_weights_path=lora_weights_path,
             )
             _current_model_type = "VoxCPM"
-            return f"✅ VoxCPM 加载成功：{model_path}  |  设备：{device}  |  降噪器：{'开启' if voxcpm_load_denoiser else '关闭'}"
+            
+            lora_info = f"  |  LoRA：{lora_name}" if (lora_enabled and lora_name and lora_name != "None") else ""
+            return f"✅ VoxCPM 加载成功：{model_path}  |  设备：{device}  |  降噪器：{'开启' if voxcpm_load_denoiser else '关闭'}{lora_info}"
     except Exception as e:
         _model = None
         _omnivoice_model = None
@@ -331,7 +393,8 @@ def generate_audio(
 
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     if _current_model_type == "VoxCPM" :
-        tag = f"ref{ref_num}_cfg{cfg_value}_step{inference_timesteps}_{ts}" 
+        lora_enabled_tag = '_lora' if _model.lora_enabled else ''
+        tag = f"ref{ref_num}_cfg{cfg_value}_step{inference_timesteps}{lora_enabled_tag}_{ts}" 
     elif _current_model_type == 'OmniVoice' :
         tag = f"ref{ref_num}_numstep{omnivoice_num_step}_speed{omnivoice_speed}_{ts}"
 
@@ -642,28 +705,45 @@ def build_ui():
                         value="float16",
                     )
 
+                lora_enabled = gr.Checkbox(label="启用 LoRA", value=False)
+                lora_list = scan_lora_checkpoints()
+                lora_select = gr.Dropdown(
+                    label="LoRA 模型",
+                    choices=lora_list,
+                    value=lora_list[0],
+                    visible=False,
+                )
+
                 def update_model_fields(model_type):
                     # outputs=[model_path, device, 
                              # omnivoice_advanced, voxcpm_advanced,
                              # voxcpm_params_row, omnivoice_params_row,
-                             # omnivoice_ref_advanced],
+                             # omnivoice_ref_advanced, load_btn],
                     if model_type == "OmniVoice":
                         return (gr.update(value="NotAvailable"), gr.update(visible=False),
                                 gr.update(visible=True), gr.update(visible=False),
                                 gr.update(visible=False), gr.update(visible=True),
-                                gr.update(visible=True), gr.update(interactive=False))
+                                gr.update(visible=True), gr.update(interactive=False),
+                                gr.update(visible=False), gr.update(visible=False))
                     elif model_type == 'VoxCPM' :
                         return (gr.update(value="openbmb/VoxCPM2"), gr.update(visible=True),
                                 gr.update(visible=False), gr.update(visible=True),
                                 gr.update(visible=True), gr.update(visible=False),
-                                gr.update(visible=False), gr.update(interactive=True))
+                                gr.update(visible=False), gr.update(interactive=True),
+                                gr.update(visible=True), gr.update(visible=False))
 
                 load_btn = gr.Button("⚡ 加载模型", variant="primary")
                 model_status = gr.Textbox(label="状态", interactive=False)
 
+                lora_enabled.change(
+                    fn=lambda on: gr.update(visible=on),
+                    inputs=[lora_enabled],
+                    outputs=[lora_select],
+                )
+
                 load_btn.click(
                     load_model,
-                    inputs=[model_type, model_path, device, voxcpm_load_denoiser, omnivoice_device_map, omnivoice_dtype],
+                    inputs=[model_type, model_path, device, voxcpm_load_denoiser, omnivoice_device_map, omnivoice_dtype, lora_enabled, lora_select],
                     outputs=[model_status],
                 )
 
@@ -855,7 +935,8 @@ def build_ui():
                     outputs=[model_path, device, 
                                 omnivoice_advanced, voxcpm_advanced,
                                 voxcpm_params_row, omnivoice_params_row,
-                                omnivoice_ref_advanced, load_btn],
+                                omnivoice_ref_advanced, load_btn,
+                                lora_enabled, lora_select],
                 )
 
                 omnivoice_use_duration.change(
