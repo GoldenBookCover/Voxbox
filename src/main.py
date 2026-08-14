@@ -350,6 +350,7 @@ def generate_audio(
     ref_audio_path: str,
     cfg_value: float,
     inference_timesteps: int,
+    hifi_mode: bool,
     output_dir: str,
     gap_seconds: float,
     merge_audio: bool,
@@ -382,6 +383,7 @@ def generate_audio(
     if not texts:
         return None, "❌ 文本列表为空，请输入或上传文本", "[]"
 
+    original_ref_name = ref_audio_path
     ref_num = ref_audio_path.split('-', 1)[0]
     ref_audio_path = str(REFERENCE_AUDIO_DIR / ref_audio_path)
     if not ref_audio_path or not os.path.isfile(ref_audio_path):
@@ -393,8 +395,9 @@ def generate_audio(
 
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
     if _current_model_type == "VoxCPM" :
+        hifi_enabled_tag = '_hifi' if hifi_mode else ''
         lora_enabled_tag = '_lora' if _model.lora_enabled else ''
-        tag = f"ref{ref_num}_cfg{cfg_value}_step{inference_timesteps}{lora_enabled_tag}_{ts}" 
+        tag = f"ref{ref_num}_cfg{cfg_value}_step{inference_timesteps}{lora_enabled_tag}{hifi_enabled_tag}_{ts}" 
     elif _current_model_type == 'OmniVoice' :
         tag = f"ref{ref_num}_numstep{omnivoice_num_step}_speed{omnivoice_speed}_{ts}"
 
@@ -423,6 +426,11 @@ def generate_audio(
                     "cfg_value": cfg_value,
                     "inference_timesteps": int(inference_timesteps),
                 }
+                if hifi_mode:
+                    print(f"Enabling hi-fi mode")
+                    ref_info = parse_reference_info(original_ref_name)
+                    kwargs["prompt_wav_path"] = ref_audio_path
+                    kwargs["prompt_text"] = ref_info['text']
                 if use_seed :
                     print(f"Enabling seed: {seed}")
                     kwargs["seed"] = seed
@@ -764,6 +772,7 @@ def build_ui():
                             inference_timesteps = gr.Slider(label="Inference Timesteps",
                                                             minimum=1, maximum=50,
                                                             step=1, value=10)
+                            hifi_mode = gr.Checkbox(label="🎯 Hi-Fi Mode", value=False)
                             seed_enabled = gr.Checkbox(label="启用固定随机种子", value=False)
                             seed_value = gr.Number(
                                 label="种子值", minimum=0, maximum=2147483647, step=1, value=42,
@@ -969,7 +978,7 @@ def build_ui():
                     inputs=[
                         config_switch, text_source, textarea_input, json_texts_state,
                         ref_audio_path,
-                        cfg_value, inference_timesteps, output_dir, gap_seconds, merge_audio,
+                        cfg_value, inference_timesteps, hifi_mode, output_dir, gap_seconds, merge_audio,
                         omnivoice_ref_text_field, num_step_slider, speed_slider, omnivoice_use_duration, duration_slider, seed_enabled, seed_value,
                         svc_convert_chk, svc_model_list, device
                     ],
